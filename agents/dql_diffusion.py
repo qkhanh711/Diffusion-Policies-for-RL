@@ -14,31 +14,28 @@ from agents.model import MLP
 from agents.helpers import EMA
 
 
-
 class Critic(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_dim=256):
         super(Critic, self).__init__()
-        self.q1_model = nn.Sequential(nn.Linear(state_dim + action_dim, hidden_dim),
-                                    #   nn.Mish(),
-                                      nn.LeakyReLU(),  
-                                      nn.Linear(hidden_dim, hidden_dim),
-                                    #   nn.Mish(),
-                                      nn.LeakyReLU(),
-                                      nn.Linear(hidden_dim, hidden_dim),
-                                    #   nn.Mish(),
-                                      nn.LeakyReLU(),
-                                      nn.Linear(hidden_dim, 1))
+        self.q1_model = nn.Sequential(
+            nn.Linear(state_dim + action_dim, hidden_dim),
+            nn.LeakyReLU(),  
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_dim, 1)
+        )
 
-        self.q2_model = nn.Sequential(nn.Linear(state_dim + action_dim, hidden_dim),
-                                    #   nn.Mish(),
-                                      nn.LeakyReLU(),
-                                      nn.Linear(hidden_dim, hidden_dim),
-                                    #   nn.Mish(),
-                                      nn.LeakyReLU(),
-                                      nn.Linear(hidden_dim, hidden_dim),
-                                    #   nn.Mish(),
-                                      nn.LeakyReLU(),
-                                      nn.Linear(hidden_dim, 1))
+        self.q2_model = nn.Sequential(
+            nn.Linear(state_dim + action_dim, hidden_dim),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_dim, 1)
+        )
 
     def forward(self, state, action):
         x = torch.cat([state, action], dim=-1)
@@ -53,18 +50,18 @@ class Critic(nn.Module):
         return torch.min(q1, q2)
 
 
-class Diffusion_QL(object):
+class Diffusion_DQL(object):
     def __init__(self,
                  state_dim,
                  action_dim,
                  max_action,
                  device,
-                 discount,
-                 tau,
+                 discount=0.99,
+                 tau=0.005,
                  max_q_backup=False,
                  eta=1.0,
                  beta_schedule='linear',
-                 n_timesteps=100,
+                 n_timesteps=5,
                  ema_decay=0.995,
                  step_start_ema=1000,
                  update_ema_every=5,
@@ -112,8 +109,8 @@ class Diffusion_QL(object):
         self.ema.update_model_average(self.ema_model, self.actor)
 
     def train(self, replay_buffer, iterations, batch_size=100, log_writer=None):
-
         metric = {'bc_loss': [], 'ql_loss': [], 'actor_loss': [], 'critic_loss': []}
+        
         for _ in range(iterations):
             # Sample replay buffer / batch
             state, action, next_state, reward, not_done = replay_buffer.sample(batch_size)
@@ -160,7 +157,6 @@ class Diffusion_QL(object):
                 actor_grad_norms = nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=self.grad_norm, norm_type=2)
             self.actor_optimizer.step()
 
-
             """ Step Target network """
             if self.step % self.update_ema_every == 0:
                 self.step_ema()
@@ -169,16 +165,6 @@ class Diffusion_QL(object):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
             self.step += 1
-
-            """ Log """
-            if log_writer is not None:
-                if self.grad_norm > 0:
-                    log_writer.add_scalar('Actor Grad Norm', actor_grad_norms.max().item(), self.step)
-                    log_writer.add_scalar('Critic Grad Norm', critic_grad_norms.max().item(), self.step)
-                log_writer.add_scalar('BC Loss', bc_loss.item(), self.step)
-                log_writer.add_scalar('QL Loss', q_loss.item(), self.step)
-                log_writer.add_scalar('Critic Loss', critic_loss.item(), self.step)
-                log_writer.add_scalar('Target_Q Mean', target_q.mean().item(), self.step)
 
             metric['actor_loss'].append(actor_loss.item())
             metric['bc_loss'].append(bc_loss.item())
@@ -215,5 +201,3 @@ class Diffusion_QL(object):
         else:
             self.actor.load_state_dict(torch.load(f'{dir}/actor.pth'))
             self.critic.load_state_dict(torch.load(f'{dir}/critic.pth'))
-
-

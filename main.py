@@ -8,11 +8,11 @@ import os
 import torch
 import json
 
-import d4rl
 from utils import utils
 from utils.data_sampler import Data_Sampler
 from utils.logger import logger, setup_logger
 from torch.utils.tensorboard import SummaryWriter
+from env import GAIServiceEnv
 
 hyperparameters = {
     'halfcheetah-medium-v2':         {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 9.0,  'top_k': 1},
@@ -23,7 +23,7 @@ hyperparameters = {
     'walker2d-medium-replay-v2':     {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 4.0,  'top_k': 1},
     'halfcheetah-medium-expert-v2':  {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 7.0,  'top_k': 0},
     'hopper-medium-expert-v2':       {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 5.0,  'top_k': 2},
-    'walker2d-medium-expert-v2':     {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 5.0,  'top_k': 1},
+    'bullet-walker2d-medium-expert-v0':     {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 5.0,  'top_k': 1},
     'antmaze-umaze-v0':              {'lr': 3e-4, 'eta': 0.5,   'max_q_backup': False,  'reward_tune': 'cql_antmaze', 'eval_freq': 50, 'num_epochs': 1000, 'gn': 2.0,  'top_k': 2},
     'antmaze-umaze-diverse-v0':      {'lr': 3e-4, 'eta': 2.0,   'max_q_backup': True,   'reward_tune': 'cql_antmaze', 'eval_freq': 50, 'num_epochs': 1000, 'gn': 3.0,  'top_k': 2},
     'antmaze-medium-play-v0':        {'lr': 1e-3, 'eta': 2.0,   'max_q_backup': True,   'reward_tune': 'cql_antmaze', 'eval_freq': 50, 'num_epochs': 1000, 'gn': 2.0,  'top_k': 1},
@@ -35,13 +35,45 @@ hyperparameters = {
     'kitchen-complete-v0':           {'lr': 3e-4, 'eta': 0.005, 'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 250 , 'gn': 9.0,  'top_k': 2},
     'kitchen-partial-v0':            {'lr': 3e-4, 'eta': 0.005, 'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 1000, 'gn': 10.0, 'top_k': 2},
     'kitchen-mixed-v0':              {'lr': 3e-4, 'eta': 0.005, 'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 1000, 'gn': 10.0, 'top_k': 0},
+    'gail-service-env':              {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 5.0,  'top_k': 1},
 }
+
+class ReplayBuffer:
+    def __init__(self, state_dim, action_dim, max_size, device):
+        self.state = np.zeros((max_size, state_dim))
+        self.action = np.zeros((max_size, action_dim))
+        self.next_state = np.zeros((max_size, state_dim))
+        self.reward = np.zeros((max_size, 1))
+        self.not_done = np.zeros((max_size, 1))
+        self.max_size = max_size
+        self.ptr = 0
+        self.size = 0
+        self.device = device
+
+    def add(self, state, action, next_state, reward, done):
+        self.state[self.ptr] = state
+        self.action[self.ptr] = action
+        self.next_state[self.ptr] = next_state
+        self.reward[self.ptr] = reward
+        self.not_done[self.ptr] = 1. - float(done)
+        self.ptr = (self.ptr + 1) % self.max_size
+        self.size = min(self.size + 1, self.max_size)
+
+    def sample(self, batch_size):
+        ind = np.random.randint(0, self.size, size=batch_size)
+        return (
+            torch.FloatTensor(self.state[ind]).to(self.device),
+            torch.FloatTensor(self.action[ind]).to(self.device),
+            torch.FloatTensor(self.next_state[ind]).to(self.device),
+            torch.FloatTensor(self.reward[ind]).to(self.device),
+            torch.FloatTensor(self.not_done[ind]).to(self.device)
+        )
 
 def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args):
     # Load buffer
-    dataset = d4rl.qlearning_dataset(env)
-    data_sampler = Data_Sampler(dataset, device, args.reward_tune)
-    utils.print_banner('Loaded buffer')
+    # dataset = d4rl.qlearning_dataset(env)
+    # data_sampler = Data_Sampler(dataset, device, args.reward_tune)
+    # utils.print_banner('Loaded buffer')
 
     if args.algo == 'ql':
         from agents.ql_diffusion import Diffusion_QL as Agent
@@ -80,44 +112,55 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
     max_timesteps = args.num_epochs * args.num_steps_per_epoch
     metric = 100.
     utils.print_banner(f"Training Start", separator="*", num_star=90)
-    while (training_iters < max_timesteps) and (not early_stop):
-        iterations = int(args.eval_freq * args.num_steps_per_epoch)
-        loss_metric = agent.train(data_sampler,
-                                  iterations=iterations,
-                                  batch_size=args.batch_size,
-                                  log_writer=writer)
-        training_iters += iterations
-        curr_epoch = int(training_iters // int(args.num_steps_per_epoch))
 
-        # Logging
-        utils.print_banner(f"Train step: {training_iters}", separator="*", num_star=90)
-        logger.record_tabular('Trained Epochs', curr_epoch)
-        logger.record_tabular('BC Loss', np.mean(loss_metric['bc_loss']))
-        logger.record_tabular('QL Loss', np.mean(loss_metric['ql_loss']))
-        logger.record_tabular('Actor Loss', np.mean(loss_metric['actor_loss']))
-        logger.record_tabular('Critic Loss', np.mean(loss_metric['critic_loss']))
-        logger.dump_tabular()
+    # Khởi tạo buffer động
+    replay_buffer = ReplayBuffer(state_dim, action_dim, max_size=1_000_000, device=device)
+
+    episode_rewards = []  # Thêm dòng này để lưu reward mỗi episode
+
+    for episode in range(args.num_episodes):
+        state = env.reset()
+        # state, *_ = env.reset()
+        # print(len(state))
+        # print(len(state))
+        done = False
+        episode_reward = 0  # Lưu reward của episode hiện tại
+        while not done:
+            action = agent.sample_action(state)
+            next_state, reward, done, info = env.step(action)
+            # next_state, reward, done, truncated, info = env.step(action)
+            # done = done or truncated
+            replay_buffer.add(state, action, next_state, reward, done)
+            state = next_state
+            episode_reward += reward  # Cộng dồn reward
+
+            # Train agent mỗi bước hoặc mỗi batch
+            if replay_buffer.size > args.batch_size:
+                agent.train(replay_buffer, iterations=1, batch_size=args.batch_size)
+        episode_rewards.append(episode_reward)  # Lưu reward của episode
 
         # Evaluation
         eval_res, eval_res_std, eval_norm_res, eval_norm_res_std = eval_policy(agent, args.env_name, args.seed,
                                                                                eval_episodes=args.eval_episodes)
         evaluations.append([eval_res, eval_res_std, eval_norm_res, eval_norm_res_std,
-                            np.mean(loss_metric['bc_loss']), np.mean(loss_metric['ql_loss']),
-                            np.mean(loss_metric['actor_loss']), np.mean(loss_metric['critic_loss']),
-                            curr_epoch])
+                            # np.mean(loss_metric['bc_loss']), np.mean(loss_metric['ql_loss']), # These are not available in online RL
+                            # np.mean(loss_metric['actor_loss']), np.mean(loss_metric['critic_loss']), # These are not available in online RL
+                            episode, # Use episode number for logging
+                            ])
         np.save(os.path.join(output_dir, "eval"), evaluations)
         logger.record_tabular('Average Episodic Reward', eval_res)
         logger.record_tabular('Average Episodic N-Reward', eval_norm_res)
         logger.dump_tabular()
 
-        bc_loss = np.mean(loss_metric['bc_loss'])
+        # bc_loss = np.mean(loss_metric['bc_loss']) # This is not available in online RL
         if args.early_stop:
-            early_stop = stop_check(metric, bc_loss)
+            # early_stop = stop_check(metric, bc_loss) # This is not available in online RL
+            pass # No early stopping in online RL
 
-        metric = bc_loss
+        # metric = bc_loss # This is not available in online RL
 
         if args.save_best_model:
-            agent.save_model(output_dir, curr_epoch)
+            agent.save_model(output_dir, episode) # Save model based on episode number
 
     # Model Selection: online or offline
     scores = np.array(evaluations)
@@ -131,9 +174,9 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
         with open(os.path.join(output_dir, f"best_score_{args.ms}.txt"), 'w') as f:
             f.write(json.dumps(best_res))
     elif args.ms == 'offline':
-        bc_loss = scores[:, 4]
-        top_k = min(len(bc_loss) - 1, args.top_k)
-        where_k = np.argsort(bc_loss) == top_k
+        # bc_loss = scores[:, 4] # This is not available in online RL
+        top_k = min(len(scores) - 1, args.top_k) # Use episode number for top_k
+        where_k = scores[:, -1] == top_k # Find episode number that matches top_k
         best_res = {'model selection': args.ms, 'epoch': scores[where_k][0][-1],
                     'best normalized score avg': scores[where_k][0][2],
                     'best normalized score std': scores[where_k][0][3],
@@ -143,14 +186,51 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
         with open(os.path.join(output_dir, f"best_score_{args.ms}.txt"), 'w') as f:
             f.write(json.dumps(best_res))
 
+    # Sau khi train xong, lưu reward ra file
+    np.save(os.path.join(output_dir, "episode_rewards.npy"), np.array(episode_rewards))
+
     # writer.close()
 
 
 # Runs policy for X episodes and returns average reward
 # A fixed seed is used for the eval environment
+
 def eval_policy(policy, env_name, seed, eval_episodes=10):
-    eval_env = gym.make(env_name)
-    eval_env.seed(seed + 100)
+    config = {
+        "num_users": 10,
+        "max_time": 100,
+        "latency_limit": 5.0,
+        "max_flops": 1e12,
+        "max_vram": 8e9,
+        "penalty_qos": 10.0,
+        "penalty_latency": 5.0,
+        "max_denoise_steps": 50,
+        "lambda_qos": 10.0,
+        "lambda_latency": 5.0,
+        "lambda_mem": 1.0,
+        "lambda_flops": 1.0,
+        "T": 5,
+        "tau": 5.0,
+        "Gmax": 1e12,
+        "Mmax": 8e9,
+        "upload_rate": 10e6,
+        "mem_rate": 10e6,
+        "compute_power": 1e9,
+        "download_rate": 10e6,
+        "base_fid": 50,
+        "base_price": 0.1,
+        "base_price_mem": 0.05,
+        "base_price_flops": 0.00001,
+        "base_price_latency": 0.00001,
+        "base_price_qos": 0.00001,
+        "base_price_mem": 0.00001,
+        "base_price_flops": 0.00001,
+        "base_price_latency": 0.00001,
+        "base_price_qos": 0.00001,
+        
+    }
+    eval_env = GAIServiceEnv(config)
+    np.random.seed(seed + 100)
 
     scores = []
     for _ in range(eval_episodes):
@@ -165,9 +245,8 @@ def eval_policy(policy, env_name, seed, eval_episodes=10):
     avg_reward = np.mean(scores)
     std_reward = np.std(scores)
 
-    normalized_scores = [eval_env.get_normalized_score(s) for s in scores]
-    avg_norm_score = eval_env.get_normalized_score(avg_reward)
-    std_norm_score = np.std(normalized_scores)
+    avg_norm_score = avg_reward
+    std_norm_score = std_reward
 
     utils.print_banner(f"Evaluation over {eval_episodes} episodes: {avg_reward:.2f} {avg_norm_score:.2f}")
     return avg_reward, std_reward, avg_norm_score, std_norm_score
@@ -178,10 +257,11 @@ if __name__ == "__main__":
     ### Experimental Setups ###
     parser.add_argument("--exp", default='exp_1', type=str)                    # Experiment ID
     parser.add_argument('--device', default=0, type=int)                       # device, {"cpu", "cuda", "cuda:0", "cuda:1"}, etc
-    parser.add_argument("--env_name", default="walker2d-medium-expert-v2", type=str)  # OpenAI gym environment name
+    parser.add_argument("--env_name", default="gail-service-env", type=str)  # OpenAI gym environment name
     parser.add_argument("--dir", default="results", type=str)                    # Logging directory
     parser.add_argument("--seed", default=0, type=int)                         # Sets Gym, PyTorch and Numpy seeds
     parser.add_argument("--num_steps_per_epoch", default=1000, type=int)
+    parser.add_argument("--num_episodes", default=100, type=int) # Added for online RL
 
     ### Optimization Setups ###
     parser.add_argument("--batch_size", default=256, type=int)
@@ -239,7 +319,17 @@ if __name__ == "__main__":
     variant = vars(args)
     variant.update(version=f"Diffusion-Policies-RL")
 
-    env = gym.make(args.env_name)
+    # env = gym.make(args.env_name)
+    config = {
+        "num_users": 10,
+        "max_time": 100,
+        "latency_limit": 5.0,
+        "max_flops": 1e12,
+        "max_vram": 8e9,
+        "penalty_qos": 10.0,
+        "penalty_latency": 5.0,
+    }
+    env = GAIServiceEnv(config)
 
     env.seed(args.seed)
     torch.manual_seed(args.seed)
