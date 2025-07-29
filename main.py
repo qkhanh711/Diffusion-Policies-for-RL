@@ -13,6 +13,7 @@ from utils.data_sampler import Data_Sampler
 from utils.logger import logger, setup_logger
 from torch.utils.tensorboard import SummaryWriter
 from env import GAIServiceEnv
+from tqdm import tqdm
 
 hyperparameters = {
     'halfcheetah-medium-v2':         {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 9.0,  'top_k': 1},
@@ -102,7 +103,47 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                       beta_schedule=args.beta_schedule,
                       n_timesteps=args.T,
                       lr=args.lr)
-
+    elif args.algo == 'ppo':
+        from agents.ppo_diffusion import Diffusion_PPO as Agent
+        agent = Agent(state_dim=state_dim,
+                      action_dim=action_dim,
+                      max_action=max_action,
+                      device=device,
+                    #   discount=args.discount,
+                    #   tau=args.tau,
+                    #   beta_schedule=args.beta_schedule,
+                    #   n_timesteps=args.T,
+                    #   lr=args.lr
+                    )
+    elif args.algo == 'gppo':
+        from agents.gaussian_ppo import Gaussian_PPO as Agent
+        agent = Agent(
+            state_dim=state_dim,
+            action_dim=action_dim,
+            max_action=max_action,
+            device=device,
+            lr=0.0003,                
+            noise_scale=0.1,          
+            clip_ratio=0.1,           
+            value_clip_ratio=0.1,     
+            ent_coef=0.02,            
+            norm_adv=True,
+            discount=0.97,
+            grad_norm=0.5
+        )
+    elif args.algo == 'gdql':
+        from agents.gaussian_dql import Gaussian_DQL as Agent
+        agent = Agent(state_dim=state_dim,
+                      action_dim=action_dim,
+                      max_action=max_action,
+                      device=device,
+                      lr=0.001,
+                      noise_scale=0.3,
+                      noise_type='gaussian',
+                      epsilon=0.01
+                      )
+    else:
+        raise ValueError(f"Algorithm {args.algo} not supported")
     early_stop = False
     stop_check = utils.EarlyStopping(tolerance=1, min_delta=0.)
     writer = None  # SummaryWriter(output_dir)
@@ -118,7 +159,7 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
 
     episode_rewards = []  # Thêm dòng này để lưu reward mỗi episode
 
-    for episode in range(args.num_episodes):
+    for episode in tqdm(range(args.num_episodes)):
         state = env.reset()
         # state, *_ = env.reset()
         # print(len(state))
@@ -141,7 +182,7 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
 
         # Evaluation
         eval_res, eval_res_std, eval_norm_res, eval_norm_res_std = eval_policy(agent, args.env_name, args.seed,
-                                                                               eval_episodes=args.eval_episodes)
+                                                                               eval_episodes=args.eval_episodes, config=config)
         evaluations.append([eval_res, eval_res_std, eval_norm_res, eval_norm_res_std,
                             # np.mean(loss_metric['bc_loss']), np.mean(loss_metric['ql_loss']), # These are not available in online RL
                             # np.mean(loss_metric['actor_loss']), np.mean(loss_metric['critic_loss']), # These are not available in online RL
@@ -187,7 +228,7 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
             f.write(json.dumps(best_res))
 
     # Sau khi train xong, lưu reward ra file
-    np.save(os.path.join(output_dir, "episode_rewards.npy"), np.array(episode_rewards))
+    np.save(os.path.join(output_dir, f"episode_rewards_{args.algo}.npy"), np.array(episode_rewards))
 
     # writer.close()
 
@@ -195,8 +236,16 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
 # Runs policy for X episodes and returns average reward
 # A fixed seed is used for the eval environment
 
-def eval_policy(policy, env_name, seed, eval_episodes=10):
-    config = {
+def eval_policy(policy, env_name, seed, eval_episodes=10, config=None):
+    if config is None:
+        config = {
+        "num_users": 10,
+        "max_time": 100,
+        "latency_limit": 5.0,
+        "max_flops": 1e12,
+        "max_vram": 8e9,
+        "penalty_qos": 10.0,
+        "penalty_latency": 5.0,
         "num_users": 10,
         "max_time": 100,
         "latency_limit": 5.0,
@@ -261,7 +310,7 @@ if __name__ == "__main__":
     parser.add_argument("--dir", default="results", type=str)                    # Logging directory
     parser.add_argument("--seed", default=0, type=int)                         # Sets Gym, PyTorch and Numpy seeds
     parser.add_argument("--num_steps_per_epoch", default=1000, type=int)
-    parser.add_argument("--num_episodes", default=100, type=int) # Added for online RL
+    parser.add_argument("--num_episodes", default=2000, type=int) # Added for online RL
 
     ### Optimization Setups ###
     parser.add_argument("--batch_size", default=256, type=int)
@@ -328,6 +377,13 @@ if __name__ == "__main__":
         "max_vram": 8e9,
         "penalty_qos": 10.0,
         "penalty_latency": 5.0,
+        "penalty_mem": 1.0,
+        "penalty_flops": 1.0,
+        "max_denoise_steps": 50,
+        "lambda_qos": 10.0,
+        "lambda_latency": 5.0,
+        "lambda_mem": 1.0,
+        "lambda_flops": 1.0
     }
     env = GAIServiceEnv(config)
 

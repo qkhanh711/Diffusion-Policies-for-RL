@@ -44,7 +44,7 @@ if __name__ == "__main__":
 
     # Đánh giá và lưu reward từng episode
     episode_rewards = []
-    n_episodes = 100
+    n_episodes = 2000
     obs, *_ = env.reset()
     for i in range(n_episodes):
         done = False

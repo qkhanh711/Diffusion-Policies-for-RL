@@ -1,7 +1,7 @@
 {
   "T": 5,
   "action_dim": 20,
-  "algo": "ql",
+  "algo": "gdql",
   "batch_size": 256,
   "beta_schedule": "vp",
   "device": "cuda:0",

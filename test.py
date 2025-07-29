@@ -97,6 +97,18 @@ def run(algo='ql'):
         )
     elif algo == 'ppo':
         from agents.ppo_diffusion import Diffusion_PPO as Agent
+        agent = Agent(state_dim=state_dim,
+                      action_dim=action_dim,
+                      max_action=max_action,
+                      device=device,
+                      lr=0.0003,
+                      clip_param=0.2,
+                      ema_decay=0.995,
+                      lr_decay=False,
+                      lr_maxt=1000
+                    )
+    elif algo == 'gppo':
+        from agents.ppo_diffusion import Diffusion_PPO as Agent
         agent = Agent(
             state_dim=state_dim,
             action_dim=action_dim,
@@ -111,13 +123,13 @@ def run(algo='ql'):
             value_clip_ratio=0.2,
             norm_adv=True
         )
-    elif algo == 'dql':
-        from agents.dql_diffusion import Diffusion_DQL as Agent
+    elif algo == 'gdql':
+        from agents.gaussian_dql import Gaussian_DQL as Agent
         agent = Agent(
             state_dim=state_dim,
             action_dim=action_dim,
             max_action=max_action,
-            device=device
+            device=device,
         )
     else:
         raise ValueError(f"Unknown algo: {algo}")
@@ -126,6 +138,14 @@ def run(algo='ql'):
     train_agent(env, agent, device, num_episodes=10, batch_size=64)
 
 if __name__ == "__main__":
-    run(algo='dql')
+    seed = 0
+    import numpy as np
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    # run(algo='ql')
+    run(algo='ppo')
+    # run(algo='bc')
+    # run(algo='gppo')
+    # run(algo='gdql')
     
 
