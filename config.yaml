@@ -1,0 +1,167 @@
+# 🌍 UAV-GAI Environment Configuration
+# Common environment settings for all RL algorithms (PPO, A2C, axPPO, DDPG)
+# Based on paper specifications: "UAV-Enabled Mobile Edge Computing with AI-Generated Content Services"
+
+# Environment Core Settings
+environment:
+  num_ues: 3                    # Number of user equipments (N ∈ {3, 5, 7})
+  total_timesteps: 80           # Episode length (steps) - sufficient for task completion
+  env_step_duration: 0.5        # Physics simulation timestep (seconds)
+  use_log_rewards: false        # Use log rewards for training stability
+  output_gen_path: "./data/output/generated_images/"
+
+# UAV Physical Configuration
+uav:
+  # Operating area: 1000×1000m centered at Base Station
+  position_limits:
+    x_min: -500
+    x_max: 500
+    y_min: -500  
+    y_max: 500
+    z_min: 100   # Altitude range [100, 1000]m for practical deployment
+    z_max: 1000
+  
+  # Initial positioning (centered above base station)
+  initial_position:
+    x: 0.0
+    y: 0.0
+    z: 300.0     # 300m altitude for optimal coverage
+  
+  # Flight characteristics
+  default_flight_mode: 'p_mode'  # Precision mode for stable operation
+  flight_modes:
+    p_mode:      # Precision mode - stable, energy-efficient
+      max_horizontal_speed: 17.0
+      max_ascent_speed: 5.0
+      max_descent_speed: 4.0
+      max_tilt_descent_speed: 4.0
+    s_mode:      # Sport mode - faster, higher energy consumption
+      max_horizontal_speed: 23.0
+      max_ascent_speed: 6.0
+      max_descent_speed: 5.0
+      max_tilt_descent_speed: 7.0
+
+# User Equipment Configuration
+ue:
+  # Service type distribution (based on real-world usage patterns)
+  service_distribution:
+    genai: 0.7  # 70% GenAI requests (image generation, text processing)
+    dnn: 0.3    # 30% DNN requests (image classification, recognition)
+  
+  # Data size specifications (from paper)
+  image_size_mb_range: [1, 5]      # S^img_i ∈ [1, 5] MB (input images)
+  prompt_size_mb_range: [0.5, 1]   # S^prompt_i ∈ [0.5, 1] MB (text prompts)
+  dnn_output_kb_range: [1, 5]      # S^out_dnn_i ∈ [1, 5] Kb (classification results)
+  genai_output_mb_range: [0.2, 0.5] # S^out_gen_i ∈ [0.2, 0.5] MB (generated content)
+
+# Communication System Configuration
+communication:
+  # Radio propagation model
+  path_loss_exponent: 2.0                # Path loss exponent (free space)
+  g0_channel_power_ref: 1.42e-4         # Reference channel power (W)
+  noise_power_n0: 1e-9                  # Noise power spectral density (W/Hz)
+  max_communication_range: 1000.0        # Maximum communication range (m)
+  min_snr_threshold: 5.0                 # Minimum SNR for reliable communication (dB)
+  
+  # Bandwidth allocation (optimized for GenAI + DNN traffic)
+  bw_ue_uav_subchannel: 5120000.0       # 5.12 MHz per UE-UAV link
+  bw_uav_bs_subchannel: 10000000.0      # 10 MHz UAV-BS backhaul
+  
+  # Transmit power levels (dBm) - optimized for coverage and energy efficiency
+  power_ue_up_dbm: 23                   # UE uplink power
+  power_uav_up_dbm: 23                  # UAV uplink to BS
+  power_uav_down_dbm: 23                # UAV downlink to UE
+  power_bs_down_dbm: 46                 # BS downlink power
+  
+  # Communication timing
+  tau_slot_duration: 30.0               # Maximum communication time per slot (seconds)
+
+# Base Station Configuration
+base_station:
+  position:
+    x: 0        # BS at coordinate origin (0, 0) m
+    y: 0
+    z: 50       # BS height 50m (typical cellular tower)
+  
+  # Computing infrastructure
+  computing:
+    capacity_tflops: 500.0               # Total computing capacity (TFLOPs)
+    flops_per_cycle: 32                  # 32 FP operations per clock cycle
+    frequency_range_ghz: [0.1, 2.1]     # f^inf_BS ∈ [0.1, 2.1] GHz (adjustable)
+    energy_per_flop: 1.5e-9             # φ(f^inf_BS) ∈ [0, 1.5×10^-9] J per FLOP
+
+# GenAI Processing Configuration
+genai:
+  # AI model specifications
+  model_type: "diffusion"               # Diffusion model for image generation
+  base_image_size: 262144               # Base image size for scaling (512×512)
+  
+  # Computational requirements (FLOPs per component)
+  flops:
+    encoder: 1.0e12                     # Encoder network FLOPs
+    decoder: 1.0e12                     # Decoder network FLOPs  
+    unet_base_per_step: 5.0e12          # U-Net per denoising step
+    text_conditioning: 0.5e12           # Text conditioning FLOPs
+  
+  # Quality control
+  quality_range:
+    min_brisque: 15.0                   # Better quality (lower BRISQUE score)
+    max_brisque: 35.0                   # Acceptable quality threshold
+
+# Action Space Configuration - VELOCITY BASED
+action_space:
+  uav_movement:
+    # Velocity-based control (m/s) - uses flight_mode constraints by default
+    # These are override values if you want to limit below flight_mode capabilities
+    max_horizontal_velocity: null       # Use flight_mode max_horizontal_speed (17m/s p_mode, 23m/s s_mode)
+    max_ascent_velocity: null          # Use flight_mode max_ascent_speed (5m/s p_mode, 6m/s s_mode)  
+    max_descent_velocity: null         # Use flight_mode max_descent_speed (4m/s p_mode, 5m/s s_mode)
+    
+  denoising_steps:
+    min_steps: 1                        # Minimum denoising steps (faster, lower quality)
+    max_steps: 20                       # Maximum denoising steps (slower, higher quality)
+
+# Reward Function Configuration
+rewards:
+  # Paper-compliant reward function (recommended)
+  use_paper_reward: true                # Use paper-specified reward function
+  
+  # Paper reward hyperparameters (R = ψ·I - λ_q·Q - λ_l·L - λ_e·E + λ_p·P + λ_c·C)
+  # Note: λ_p and λ_c are now POSITIVE (rewards for good positioning/connectivity)
+  lambda_quality: 1.0                   # Quality penalty weight (λ_q)
+  lambda_latency: 0.1                   # Latency penalty weight (λ_l)  
+  lambda_energy: 1e-6                   # Energy penalty weight (λ_e, scaled for Joules)
+  lambda_positioning: 0.5               # Positioning reward weight (λ_p) - bonus for good placement
+  lambda_connectivity: 1.0              # Connectivity reward weight (λ_c) - bonus for good connections
+  psi_bonus: 100.0                      # Completion bonus (ψ) when quality requirements met
+  tau_deadline: 60.0                    # Latency deadline threshold (seconds)
+  
+  # Original reward weights (used when use_paper_reward = false)
+  completion_weight: 100.0              # Task completion importance
+  upload_weight: 20.0                   # Upload phase weight
+  processing_weight: 50.0               # Processing phase weight
+  quality_bonus: 30.0                   # Quality achievement bonus
+  quality_penalty: 2.0                  # Quality violation penalty
+  efficiency_weight: 25.0               # System efficiency importance
+  quality_bonus_weight: 2.0             # Additional quality incentive
+  bs_utilization_penalty: 0.1           # BS overload penalty
+  connectivity_weight: 10.0             # Connectivity maintenance
+  positioning_penalty: 50.0             # Poor positioning penalty
+  time_penalty: 0.5                     # Time step penalty
+  completion_bonus: 500.0               # Major completion reward
+  completion_step_penalty: 2.0          # Step efficiency penalty
+  efficiency_bonus: 5.0                 # Efficiency achievement bonus
+  efficiency_threshold: 60.0            # Efficiency target threshold
+
+# Logging and Output Configuration
+logging:
+  log_dir: 'logs'                       # TensorBoard and training logs
+  model_dir: 'models'                   # Saved model checkpoints
+  eval_frequency: 10                    # Evaluation frequency (episodes)
+  
+# Metadata
+metadata:
+  version: "1.0"                        # Environment config version
+  paper_reference: "UAV-Enabled Mobile Edge Computing with AI-Generated Content Services"
+  last_updated: "2025-06-30"           # Last modification date
+  algorithms_supported: ["PPO", "A2C", "axPPO", "DDPG"]

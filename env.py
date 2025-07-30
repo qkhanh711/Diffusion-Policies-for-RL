@@ -1,7 +1,7 @@
 import gym
 from gym import spaces
-import gymnasium as gym
-from gymnasium import spaces
+# import gymnasium as gym
+# from gymnasium import spaces
 import numpy as np
 
 class User:
@@ -33,23 +33,25 @@ class GAIServiceEnv(gym.Env):
     def __init__(self, config):
         super().__init__()
         self.num_users = config["num_users"]
-        self.T = 5
-        self.tau = 2.0
-        self.Gmax = 1e12
-        self.Mmax = 8e9
-        self.lambda_qos = 10.0
-        self.lambda_latency = 5.0
+        self.T = config.get("T", 10)
+        self.tau = 3.0  # seconds
+        self.Gmax = 1e13  # FLOPs
+        self.Mmax = 128e9  # bits = 16 GB
+        self.lambda_qos = 0.5
+        self.lambda_latency = 0.5
         self.lambda_mem = 1.0
         self.lambda_flops = 1.0
+        self.PVM = 1e12  # FLOPs/s
+        self.Rmem = 2.304e12  # bit/s
         self.time_step = 0
         self.users = [User(i, config) for i in range(self.num_users)]
         self.max_denoise_steps = config.get("max_denoise_steps", 50)
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(6*self.num_users,), dtype=np.float32)
-        # Action: [b1, D1, b2, D2, ..., bN, DN]
         act_low = np.array([0, 1] * self.num_users)
         act_high = np.array([1, self.max_denoise_steps] * self.num_users)
         self.action_space = spaces.Box(low=act_low, high=act_high, dtype=np.float32)
         self.reset()
+
 
     def reset(self):
         self.time_step = 0
@@ -58,13 +60,6 @@ class GAIServiceEnv(gym.Env):
         obs = self._get_state()
         return obs
 
-    # def reset(self, seed=None, options=None):
-    #     self.time_step = 0
-    #     for user in self.users:
-    #         user.reset()
-    #     obs = self._get_state()
-    #     info = {}
-    #     return obs, info
 
     def step(self, action):
         reward, info = self._compute_reward(action)
@@ -74,14 +69,6 @@ class GAIServiceEnv(gym.Env):
         obs = self._get_state()
         return obs, reward, done, info
 
-    # def step(self, action):
-    #     reward, info = self._compute_reward(action)
-    #     self._move_users()
-    #     self.time_step += 1
-    #     done = self.time_step >= self.T
-    #     truncated = False
-    #     obs = self._get_state()
-    #     return obs, reward, done, truncated, info
     
     def _get_state(self):
         state = []
@@ -97,14 +84,28 @@ class GAIServiceEnv(gym.Env):
         for user in self.users:
             user.update_position()
 
+    # def _compute_latency(self, user, denoise_steps):
+    #     # Công thức mô phỏng latency (có thể điều chỉnh theo paper)
+    #     upload_rate = 10e6  # bytes/s
+    #     mem_rate = 10e6     # bytes/s
+    #     compute_power = 1e9 # FLOPs/s
+    #     download_rate = 10e6 # bytes/s
+    #     output_size = user.image_size  # giả sử output size = image size
+    #     flops = denoise_steps * 1e8  # mỗi bước denoise cần 1e8 FLOPs
+    #     tup = (user.image_size + user.prompt_size) / upload_rate
+    #     tmem = (user.image_size + user.prompt_size) / mem_rate
+    #     tcomp = flops / compute_power
+    #     tdown = output_size / download_rate
+    #     total_latency = tup + tmem + tcomp + tdown
+    #     return total_latency, flops
+
     def _compute_latency(self, user, denoise_steps):
-        # Công thức mô phỏng latency (có thể điều chỉnh theo paper)
         upload_rate = 10e6  # bytes/s
-        mem_rate = 10e6     # bytes/s
-        compute_power = 1e9 # FLOPs/s
-        download_rate = 10e6 # bytes/s
-        output_size = user.image_size  # giả sử output size = image size
-        flops = denoise_steps * 1e8  # mỗi bước denoise cần 1e8 FLOPs
+        mem_rate = self.Rmem / 8  # bit → byte
+        compute_power = self.PVM  # FLOPs/s
+        download_rate = 10e6  # bytes/s
+        output_size = user.image_size
+        flops = denoise_steps * 1e8
         tup = (user.image_size + user.prompt_size) / upload_rate
         tmem = (user.image_size + user.prompt_size) / mem_rate
         tcomp = flops / compute_power
@@ -118,9 +119,18 @@ class GAIServiceEnv(gym.Env):
         fid = base_fid / (1 + 0.1 * denoise_steps)
         return fid
 
+    # def _compute_price(self, user, flops):
+    #     # Công thức pricing (14)
+    #     price = 0.1 * user.image_size + 0.05 * user.prompt_size + 0.00001 * flops
+    #     return price
+
     def _compute_price(self, user, flops):
-        # Công thức pricing (14)
-        price = 0.1 * user.image_size + 0.05 * user.prompt_size + 0.00001 * flops
+        # theo phương trình (14)
+        lambda_m = 1e-7
+        lambda_g = 1e-5
+        lambda_c = 2.5e-6
+        mem = user.image_size + user.prompt_size  # bytes
+        price = lambda_m * mem + lambda_g * flops + lambda_c * mem
         return price
 
     def _compute_reward(self, action):
@@ -131,8 +141,15 @@ class GAIServiceEnv(gym.Env):
         total_mem = 0
         info = {"user_rewards": [], "user_penalties": [], "user_latencies": [], "user_qos": []}
         for i, user in enumerate(self.users):
-            serve = int(round(action[2*i]))
-            denoise_steps = int(round(action[2*i+1]))
+            # print(type(action))
+            # print(action)
+            if isinstance(action, np.ndarray):
+                serve = int(round(action[2*i]))
+                denoise_steps = int(round(action[2*i+1]))
+            else:
+                # print(action.detach().cpu().numpy()[0])
+                serve = int(round(action.detach().cpu().numpy()[0][2*i]))
+                denoise_steps = int(round(action.detach().cpu().numpy()[0][2*i+1]))
             denoise_steps = max(1, min(denoise_steps, self.max_denoise_steps))
             if serve == 1:
                 latency, flops = self._compute_latency(user, denoise_steps)

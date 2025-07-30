@@ -19,25 +19,19 @@ class Critic(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_dim=256):
         super(Critic, self).__init__()
         self.q1_model = nn.Sequential(nn.Linear(state_dim + action_dim, hidden_dim),
-                                    #   nn.Mish(),
-                                      nn.LeakyReLU(),  
+                                      nn.Mish(),
                                       nn.Linear(hidden_dim, hidden_dim),
-                                    #   nn.Mish(),
-                                      nn.LeakyReLU(),
+                                      nn.Mish(),
                                       nn.Linear(hidden_dim, hidden_dim),
-                                    #   nn.Mish(),
-                                      nn.LeakyReLU(),
+                                      nn.Mish(),                           
                                       nn.Linear(hidden_dim, 1))
 
         self.q2_model = nn.Sequential(nn.Linear(state_dim + action_dim, hidden_dim),
-                                    #   nn.Mish(),
-                                      nn.LeakyReLU(),
+                                      nn.Mish(),                          
                                       nn.Linear(hidden_dim, hidden_dim),
-                                    #   nn.Mish(),
-                                      nn.LeakyReLU(),
+                                      nn.Mish(),
                                       nn.Linear(hidden_dim, hidden_dim),
-                                    #   nn.Mish(),
-                                      nn.LeakyReLU(),
+                                      nn.Mish(),
                                       nn.Linear(hidden_dim, 1))
 
     def forward(self, state, action):
@@ -137,6 +131,11 @@ class Diffusion_QL(object):
 
             critic_loss = F.mse_loss(current_q1, target_q) + F.mse_loss(current_q2, target_q)
 
+            # Check for NaN or inf values
+            if torch.isnan(critic_loss) or torch.isinf(critic_loss):
+                print(f"Warning: critic_loss is {critic_loss}")
+                continue
+
             self.critic_optimizer.zero_grad()
             critic_loss.backward()
             if self.grad_norm > 0:
@@ -153,6 +152,11 @@ class Diffusion_QL(object):
             else:
                 q_loss = - q2_new_action.mean() / q1_new_action.abs().mean().detach()
             actor_loss = bc_loss + self.eta * q_loss
+
+            # Check for NaN or inf values
+            if torch.isnan(actor_loss) or torch.isinf(actor_loss):
+                print(f"Warning: actor_loss is {actor_loss}")
+                continue
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()

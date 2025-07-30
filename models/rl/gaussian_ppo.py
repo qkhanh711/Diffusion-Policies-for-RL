@@ -6,14 +6,14 @@ Ta: action chunk size
 Do: observation dimension
 Da: action dimension
 
-C: image channels
+C: image channel20
 H, W: image height and width
 
 """
 
 from typing import Optional
 import torch
-from model.rl.gaussian_vpg import VPG_Gaussian
+from models.rl.gaussian_vpg import VPG_Gaussian
 
 
 class PPO_Gaussian(VPG_Gaussian):

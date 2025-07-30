@@ -1,4 +1,4 @@
-# Copyright 2022 Twitter, Inc and Zhendong Wang.
+# Copyright 2024 Twitter, Inc and Zhendong Wang.
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
@@ -7,13 +7,13 @@ import numpy as np
 import os
 import torch
 import json
-
+from tqdm import tqdm
 from utils import utils
 from utils.data_sampler import Data_Sampler
 from utils.logger import logger, setup_logger
 from torch.utils.tensorboard import SummaryWriter
 from env import GAIServiceEnv
-
+# from jlgo.uav_env import UAVGenAIEnv
 hyperparameters = {
     'halfcheetah-medium-v2':         {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 9.0,  'top_k': 1},
     'hopper-medium-v2':              {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 9.0,  'top_k': 2},
@@ -35,7 +35,7 @@ hyperparameters = {
     'kitchen-complete-v0':           {'lr': 3e-4, 'eta': 0.005, 'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 250 , 'gn': 9.0,  'top_k': 2},
     'kitchen-partial-v0':            {'lr': 3e-4, 'eta': 0.005, 'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 1000, 'gn': 10.0, 'top_k': 2},
     'kitchen-mixed-v0':              {'lr': 3e-4, 'eta': 0.005, 'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 1000, 'gn': 10.0, 'top_k': 0},
-    'gail-service-env':              {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 5.0,  'top_k': 1},
+    'gail-service-env':              {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
 }
 
 class ReplayBuffer:
@@ -102,6 +102,67 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                       beta_schedule=args.beta_schedule,
                       n_timesteps=args.T,
                       lr=args.lr)
+    elif args.algo == 'ppo':
+        from agents.ppo_diffusion import Diffusion_PPO as Agent
+        agent = Agent(state_dim=state_dim,
+                      action_dim=action_dim,
+                      max_action=max_action,
+                      device=device,
+                    #   discount=args.discount,
+                    #   tau=args.tau,
+                    #   beta_schedule=args.beta_schedule,
+                    #   n_timesteps=args.T,
+                    #   lr=args.lr
+                    )
+    # elif args.algo == 'dql':
+    #     from agents.dql_diffusion import Diffusion_DQL as Agent
+    #     # agent = Agent(state_dim, action_dim, max_action, device, args.discount, args.tau,
+    #     #               args.beta_schedule, args.T, args.lr)
+    #     agent = Agent(state_dim=state_dim,
+    #                   action_dim=action_dim,
+    #                   max_action=max_action,
+    #                   device=device,
+    #                   discount=args.discount,
+    #                   tau=args.tau,
+    #                   max_q_backup=args.max_q_backup,
+    #                   eta=args.eta,
+    #                   beta_schedule=args.beta_schedule,
+    #                   n_timesteps=args.T,
+    #                   lr=args.lr,
+    #                   lr_decay=args.lr_decay,
+    #                   lr_maxt=args.num_epochs,
+    #                   grad_norm=args.gn)
+    elif args.algo == 'gppo':
+        from agents.gaussian_ppo import Gaussian_PPO as Agent
+        agent = Agent(state_dim=state_dim,
+                      action_dim=action_dim,
+                      max_action=max_action,
+                      device=device,
+                      discount=args.discount,
+                      tau=args.tau,
+                      lr=args.lr,
+                      lr_decay=args.lr_decay,
+                      lr_maxt=args.num_epochs,
+                      grad_norm=args.gn,
+                      clip_ratio=0.2,
+                      value_clip_ratio=0.2,
+                      norm_adv=True,
+                      horizon_steps=1,
+                      ent_coef=0.01)
+    elif args.algo == 'gdql':
+        from agents.gaussian_dql import Gaussian_DQL as Agent
+        agent = Agent(state_dim=state_dim,
+                      action_dim=action_dim,
+                      max_action=max_action,
+                      device=device,
+                      discount=args.discount,
+                      tau=args.tau,
+                      lr=args.lr,
+                      lr_decay=args.lr_decay,
+                      lr_maxt=args.num_epochs,
+                      grad_norm=args.gn)
+    else:
+        raise ValueError(f"Unsupported algorithm: {args.algo}")
 
     early_stop = False
     stop_check = utils.EarlyStopping(tolerance=1, min_delta=0.)
@@ -118,7 +179,7 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
 
     episode_rewards = []  # Thêm dòng này để lưu reward mỗi episode
 
-    for episode in range(args.num_episodes):
+    for episode in tqdm(range(args.num_episodes)):
         state = env.reset()
         # state, *_ = env.reset()
         # print(len(state))
@@ -147,6 +208,7 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                             # np.mean(loss_metric['actor_loss']), np.mean(loss_metric['critic_loss']), # These are not available in online RL
                             episode, # Use episode number for logging
                             ])
+        np.save(os.path.join(output_dir, "eval_res"), eval_res)
         np.save(os.path.join(output_dir, "eval"), evaluations)
         logger.record_tabular('Average Episodic Reward', eval_res)
         logger.record_tabular('Average Episodic N-Reward', eval_norm_res)
@@ -187,7 +249,7 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
             f.write(json.dumps(best_res))
 
     # Sau khi train xong, lưu reward ra file
-    np.save(os.path.join(output_dir, "episode_rewards.npy"), np.array(episode_rewards))
+    np.save(os.path.join(output_dir, f"main/episode_rewards_{args.algo}.npy"), np.array(episode_rewards))
 
     # writer.close()
 
@@ -261,7 +323,7 @@ if __name__ == "__main__":
     parser.add_argument("--dir", default="results", type=str)                    # Logging directory
     parser.add_argument("--seed", default=0, type=int)                         # Sets Gym, PyTorch and Numpy seeds
     parser.add_argument("--num_steps_per_epoch", default=1000, type=int)
-    parser.add_argument("--num_episodes", default=100, type=int) # Added for online RL
+    parser.add_argument("--num_episodes", default=2000, type=int) # Added for online RL
 
     ### Optimization Setups ###
     parser.add_argument("--batch_size", default=256, type=int)
@@ -275,10 +337,10 @@ if __name__ == "__main__":
 
     ### Diffusion Setting ###
     parser.add_argument("--T", default=5, type=int)
-    parser.add_argument("--beta_schedule", default='vp', type=str)
+    parser.add_argument("--beta_schedule", default='linear', type=str)
     ### Algo Choice ###
-    parser.add_argument("--algo", default="ql", type=str)  # ['bc', 'ql']
-    parser.add_argument("--ms", default='offline', type=str, help="['online', 'offline']")
+    parser.add_argument("--algo", default="bc", type=str)  # ['bc', 'ql']
+    parser.add_argument("--ms", default='online', type=str, help="['online', 'offline']")
     # parser.add_argument("--top_k", default=1, type=int)
 
     # parser.add_argument("--lr", default=3e-4, type=float)
@@ -293,7 +355,7 @@ if __name__ == "__main__":
 
     args.num_epochs = hyperparameters[args.env_name]['num_epochs']
     args.eval_freq = hyperparameters[args.env_name]['eval_freq']
-    args.eval_episodes = 10 if 'v2' in args.env_name else 100
+    args.eval_episodes = 100 if 'v2' in args.env_name else 100
 
     args.lr = hyperparameters[args.env_name]['lr']
     args.eta = hyperparameters[args.env_name]['eta']
@@ -328,6 +390,16 @@ if __name__ == "__main__":
         "max_vram": 8e9,
         "penalty_qos": 10.0,
         "penalty_latency": 5.0,
+        "Dmax": 50,
+        "tau": 5,
+        "area": [-500, 500, -500, 500],
+        "z_range": [0, 1000],
+        "BS_position": [0,0,50],
+        "lambda_Q": 0.1,
+        "lambda_E": 0.5,
+        "lambda_L": 0.3,
+        "psi": 10,
+        
     }
     env = GAIServiceEnv(config)
 

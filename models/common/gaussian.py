@@ -80,6 +80,12 @@ class GaussianModel(torch.nn.Module):
         if deterministic:
             # low-noise for all Gaussian dists
             scales = torch.ones_like(means) * 1e-4
+        if torch.isnan(means).any() or torch.isnan(scales).any():
+            print(f"[Warning] NaN detected in means or scales! Replacing NaN with safe values.")
+            means = torch.nan_to_num(means, nan=0.0)
+            scales = torch.nan_to_num(scales, nan=1e-4)
+        # Đảm bảo scales luôn dương và không quá nhỏ
+        scales = torch.clamp(scales, min=1e-6)
         return D.Normal(loc=means, scale=scales)
 
     def forward(

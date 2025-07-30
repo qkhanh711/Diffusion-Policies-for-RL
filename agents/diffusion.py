@@ -33,6 +33,8 @@ class Diffusion(nn.Module):
             betas = cosine_beta_schedule(n_timesteps)
         elif beta_schedule == 'vp':
             betas = vp_beta_schedule(n_timesteps)
+        else:
+            raise ValueError(f"Unknown beta schedule: {beta_schedule}")
 
         alphas = 1. - betas
         alphas_cumprod = torch.cumprod(alphas, axis=0)
