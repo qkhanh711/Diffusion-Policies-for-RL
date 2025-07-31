@@ -166,13 +166,13 @@ def train_agent(env, agent, device, num_episodes=10000, batch_size=64, algo='ql'
     print(f"Average reward over {num_episodes} episodes: {np.mean(episode_rewards):.2f}")
 
 def run(algo='ql', test = False):
-    seed = 1234
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    # seed = 1234
+    # np.random.seed(seed)
+    # torch.manual_seed(seed)
+    # torch.cuda.manual_seed(seed)
+    # torch.cuda.manual_seed_all(seed)
+    # torch.backends.cudnn.deterministic = True
+    # torch.backends.cudnn.benchmark = False
     config = get_config()
     env = UAVGenAIEnv(config)
     state_dim = env._get_state().shape[0]

@@ -206,13 +206,13 @@ def train_agent(env, agent, device, num_episodes=10000, batch_size=64, algo='ql'
 
 def run(algo=None, test = False):
 
-    seed = 1234
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    # seed = 1234
+    # np.random.seed(seed)
+    # torch.manual_seed(seed)
+    # torch.cuda.manual_seed(seed)
+    # torch.cuda.manual_seed_all(seed)
+    # torch.backends.cudnn.deterministic = True
+    # torch.backends.cudnn.benchmark = False
 
     config = get_config()
     env = UAVGenAIEnv(config)
