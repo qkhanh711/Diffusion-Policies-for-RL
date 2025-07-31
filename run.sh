@@ -32,7 +32,7 @@ echo "Running $ALGO sequentially with seeds 0 to $N"
 # Create results directory
 mkdir -p results
 
-for seed in $(seq 0 $N); do
+for seed in $(seq 1853 $N); do
     echo "🏃 Running seed $seed/$N..."
     
     # Run experiment

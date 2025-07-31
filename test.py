@@ -161,7 +161,7 @@ def train_agent(env, agent, device, num_episodes=10000, batch_size=64, algo='ql'
         # Early stopping for PPO
         if algo == 'ppo' and len(episode_rewards) > 600:
             recent_avg = np.mean(episode_rewards[-50:])
-            if recent_avg < 10000:  # Target reward cho convergence
+            if recent_avg < 8500:  # Target reward cho convergence
                 print(f"PPO converged at episode {episode} with avg reward {recent_avg}")
                 break
     # Save final results
@@ -171,7 +171,10 @@ def train_agent(env, agent, device, num_episodes=10000, batch_size=64, algo='ql'
     plt.xlabel('Episode')
     plt.ylabel('Reward')
     plt.title(f'Reward Curve - {algo}')
-    plt.savefig(f"/home/khanhnq/khanhnq/DQL-Offline-RL/test{seed}/reward_curve_{algo}.png")
+    if len(episode_rewards) != num_episodes:
+        plt.savefig(f"/home/khanhnq/khanhnq/DQL-Offline-RL/test{seed}/reward_curve_{algo}.png")
+    else:
+        plt.savefig(f"/home/khanhnq/khanhnq/DQL-Offline-RL/test{seed}_ok/reward_curve_{algo}.png")
     plt.close()
     print(f"Image saved to ~/khanhnq/khanhnq/DQL-Offline-RL/test{seed}/reward_curve_{algo}.png")
 
