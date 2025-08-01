@@ -74,7 +74,7 @@ communication:
   power_bs_down_dbm: 46                 # BS downlink power
   
   # Communication timing
-  tau_slot_duration: 30.0               # Maximum communication time per slot (seconds)
+  tau_slot_duration: 3.0               # Maximum communication time per slot (seconds)
 
 # Base Station Configuration
 base_station:

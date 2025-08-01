@@ -1,10 +1,8 @@
 import torch
 from jlgo.uav_env_JLGO import UAVGenAIEnv
-# from jlgo.uav_env import UAVGenAIEnv
 import numpy as np
 from tqdm import tqdm
 import json
-# from main import ReplayBuffer  # Nếu có ReplayBuffer riêng cho UAVEnv, import ở đây
 
 def debug_env(num = 10):
     config = get_config()
@@ -50,7 +48,6 @@ def debug_env(num = 10):
     print("\n=== ENV DEBUG END ===")
 
 
-# Dummy ReplayBuffer nếu chưa có
 class ReplayBuffer:
     def __init__(self, state_dim, action_dim, max_size=10000, device='cpu'):
         self.device = device
