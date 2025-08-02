@@ -11,361 +11,6 @@ from utils.logger import logger, setup_logger
 # from jlgo.uav_env import UAVGenAIEnv
 from jlgo.uav_env_JLGO import UAVGenAIEnv
 from tqdm import tqdm
-import json
-import csv
-from datetime import datetime
-import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend
-import matplotlib.pyplot as plt
-
-class MetricsLogger:
-    def __init__(self, save_dir="metrics_logs"):
-        self.save_dir = save_dir
-        os.makedirs(save_dir, exist_ok=True)
-        
-        # Initialize data storage
-        self.epoch_metrics = []
-        self.step_metrics = []
-        self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        # For loss plotting
-        self.loss_history = {
-            'epochs': [],
-            'losses': {},
-            'rewards': []
-        }
-        self.best_reward = float('-inf')  # Track best reward for milestone saving
-        
-    def log_epoch_metrics(self, epoch, rewards, agent_losses=None):
-        """Log metrics mỗi epoch"""
-        epoch_data = {
-            'epoch': epoch,
-            'avg_reward': np.mean(rewards),
-            'min_reward': np.min(rewards),
-            'max_reward': np.max(rewards),
-            'std_reward': np.std(rewards),
-            'total_episodes': len(rewards),
-            'timestamp': datetime.now().isoformat()
-        }
-        
-        # Add agent losses if available
-        if agent_losses:
-            epoch_data.update(agent_losses)
-            
-        self.epoch_metrics.append(epoch_data)
-        
-        # Update loss history for plotting
-        self.loss_history['epochs'].append(epoch)
-        avg_reward = np.mean(rewards)
-        self.loss_history['rewards'].append(avg_reward)
-        
-        # Check for reward improvement for milestone saving
-        reward_improved = False
-        if avg_reward > self.best_reward:
-            self.best_reward = avg_reward
-            reward_improved = True
-        
-        if agent_losses:
-            for loss_name, loss_value in agent_losses.items():
-                if loss_name not in self.loss_history['losses']:
-                    self.loss_history['losses'][loss_name] = []
-                self.loss_history['losses'][loss_name].append(loss_value)
-                
-        return reward_improved  # Return whether reward improved
-                
-    def save_loss_plot(self, save_interval=50):
-        """Tự động lưu plot loss và reward dưới dạng PNG"""
-        if len(self.loss_history['epochs']) == 0:
-            return
-            
-        current_epoch = self.loss_history['epochs'][-1]
-        
-        # Chỉ save plot theo interval hoặc epoch cuối
-        if current_epoch % save_interval != 0 and current_epoch != self.loss_history['epochs'][-1]:
-            return
-            
-        # Create figure with subplots
-        num_plots = 1 + len(self.loss_history['losses'])  # 1 for rewards + losses
-        fig, axes = plt.subplots(num_plots, 1, figsize=(12, 4*num_plots))
-        
-        if num_plots == 1:
-            axes = [axes]
-            
-        # Plot rewards
-        axes[0].plot(self.loss_history['epochs'], self.loss_history['rewards'], 'b-', linewidth=2, label='Average Reward')
-        axes[0].set_xlabel('Epoch')
-        axes[0].set_ylabel('Reward')
-        axes[0].set_title('Training Progress - Average Reward per Epoch')
-        axes[0].grid(True, alpha=0.3)
-        axes[0].legend()
-        
-        # Plot losses
-        plot_idx = 1
-        for loss_name, loss_values in self.loss_history['losses'].items():
-            if len(loss_values) > 0:
-                # Ensure same length as epochs
-                epochs_for_loss = self.loss_history['epochs'][-len(loss_values):]
-                axes[plot_idx].plot(epochs_for_loss, loss_values, 'r-', linewidth=2, label=loss_name)
-                axes[plot_idx].set_xlabel('Epoch')
-                axes[plot_idx].set_ylabel('Loss')
-                axes[plot_idx].set_title(f'Training Progress - {loss_name}')
-                axes[plot_idx].grid(True, alpha=0.3)
-                axes[plot_idx].legend()
-                plot_idx += 1
-        
-        # Remove empty subplots
-        for i in range(plot_idx, len(axes)):
-            fig.delaxes(axes[i])
-            
-        plt.tight_layout()
-        
-        # Save plot
-        plot_filename = f"loss_plot.png"
-        plot_path = os.path.join(self.save_dir, plot_filename)
-        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        print(f"📊 Loss plot saved: {plot_path}")
-        
-    def save_final_plot(self):
-        """Lưu plot cuối cùng với tất cả dữ liệu"""
-        if len(self.loss_history['epochs']) == 0:
-            return
-            
-        # Create comprehensive final plot
-        num_plots = 1 + len(self.loss_history['losses'])
-        fig, axes = plt.subplots(num_plots, 1, figsize=(15, 4*num_plots))
-        
-        if num_plots == 1:
-            axes = [axes]
-            
-        # Plot rewards with moving average
-        epochs = self.loss_history['epochs']
-        rewards = self.loss_history['rewards']
-        
-        axes[0].plot(epochs, rewards, 'b-', linewidth=1, alpha=0.7, label='Average Reward')
-        
-        # Add moving average if enough data
-        if len(rewards) > 10:
-            window_size = min(50, len(rewards) // 10)
-            moving_avg = np.convolve(rewards, np.ones(window_size)/window_size, mode='valid')
-            moving_epochs = epochs[window_size-1:]
-            axes[0].plot(moving_epochs, moving_avg, 'r-', linewidth=2, label=f'Moving Average ({window_size})')
-            
-        axes[0].set_xlabel('Epoch')
-        axes[0].set_ylabel('Reward')
-        axes[0].set_title('Final Training Results - Reward Progress')
-        axes[0].grid(True, alpha=0.3)
-        axes[0].legend()
-        
-        # Add statistics text
-        if len(rewards) > 0:
-            stats_text = f'Final Reward: {rewards[-1]:.4f}\n'
-            stats_text += f'Best Reward: {max(rewards):.4f}\n'
-            stats_text += f'Average: {np.mean(rewards):.4f}\n'
-            stats_text += f'Std: {np.std(rewards):.4f}'
-            axes[0].text(0.02, 0.98, stats_text, transform=axes[0].transAxes, 
-                        verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-        
-        # Plot losses
-        plot_idx = 1
-        for loss_name, loss_values in self.loss_history['losses'].items():
-            if len(loss_values) > 0:
-                epochs_for_loss = epochs[-len(loss_values):]
-                axes[plot_idx].plot(epochs_for_loss, loss_values, 'r-', linewidth=2, label=loss_name)
-                
-                # Add moving average for loss too
-                if len(loss_values) > 10:
-                    window_size = min(20, len(loss_values) // 5)
-                    loss_moving_avg = np.convolve(loss_values, np.ones(window_size)/window_size, mode='valid')
-                    loss_moving_epochs = epochs_for_loss[window_size-1:]
-                    axes[plot_idx].plot(loss_moving_epochs, loss_moving_avg, 'g-', linewidth=2, label=f'Moving Average ({window_size})')
-                
-                axes[plot_idx].set_xlabel('Epoch')
-                axes[plot_idx].set_ylabel('Loss')
-                axes[plot_idx].set_title(f'Final Training Results - {loss_name}')
-                axes[plot_idx].grid(True, alpha=0.3)
-                axes[plot_idx].legend()
-                
-                # Add loss statistics
-                if len(loss_values) > 0:
-                    loss_stats_text = f'Final Loss: {loss_values[-1]:.6f}\n'
-                    loss_stats_text += f'Min Loss: {min(loss_values):.6f}\n'
-                    loss_stats_text += f'Average: {np.mean(loss_values):.6f}'
-                    axes[plot_idx].text(0.02, 0.98, loss_stats_text, transform=axes[plot_idx].transAxes,
-                                      verticalalignment='top', bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.5))
-                plot_idx += 1
-        
-        # Remove empty subplots
-        for i in range(plot_idx, len(axes)):
-            fig.delaxes(axes[i])
-            
-        plt.tight_layout()
-        
-        # Save final plot
-        final_plot_filename = f"final_training_plot_{self.timestamp}.png"
-        final_plot_path = os.path.join(self.save_dir, final_plot_filename)
-        plt.savefig(final_plot_path, dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        print(f"🎯 Final training plot saved: {final_plot_path}")
-        return final_plot_path
-        
-    def log_step_metrics(self, epoch, episode, step, state, action, reward, info, agent_losses=None):
-        """Log chi tiết metrics mỗi step"""
-        step_data = {
-            'epoch': epoch,
-            'episode': episode,
-            'step': step,
-            'reward': reward,
-            'timestamp': datetime.now().isoformat()
-        }
-        
-        # Log action details
-        if isinstance(action, dict):
-            step_data['uav_movement'] = action.get('uav_movement', []).tolist() if hasattr(action.get('uav_movement', []), 'tolist') else action.get('uav_movement', [])
-            step_data['denoising_steps'] = action.get('denoising_steps', []).tolist() if hasattr(action.get('denoising_steps', []), 'tolist') else action.get('denoising_steps', [])
-            step_data['uav_movement_magnitude'] = np.linalg.norm(action.get('uav_movement', [0])) if action.get('uav_movement') is not None else 0
-        else:
-            step_data['action'] = action.tolist() if hasattr(action, 'tolist') else action
-            
-        # Log state summary
-        if state is not None:
-            step_data['state_mean'] = np.mean(state)
-            step_data['state_std'] = np.std(state)
-            step_data['state_min'] = np.min(state)
-            step_data['state_max'] = np.max(state)
-            
-        # Log environment info metrics
-        if info:
-            # Energy metrics
-            step_data['energy_total'] = info.get('energy_total_consumption', 0)
-            step_data['energy_transmission'] = info.get('energy_transmission', 0)
-            step_data['energy_processing'] = info.get('energy_processing', 0)
-            step_data['energy_efficiency_per_ue'] = info.get('energy_efficiency_per_ue', 0)
-            
-            # Latency metrics
-            step_data['latency_total_avg'] = info.get('latency_total_avg', 0)
-            step_data['latency_upload_avg'] = info.get('latency_upload_avg', 0)
-            step_data['latency_processing_avg'] = info.get('latency_processing_avg', 0)
-            step_data['latency_download_avg'] = info.get('latency_download_avg', 0)
-            step_data['latency_deadline_violations'] = info.get('latency_deadline_violations', 0)
-            
-            # QoS metrics
-            step_data['qos_quality_score_avg'] = info.get('qos_quality_score_avg', 0)
-            step_data['qos_denoising_efficiency'] = info.get('qos_denoising_efficiency', 0)
-            step_data['qos_quality_requirements_met'] = info.get('qos_quality_requirements_met', 0)
-            step_data['qos_quality_violations'] = info.get('qos_quality_violations', 0)
-            
-            # Completion metrics
-            step_data['completion_rate'] = info.get('completion_rate', 0)
-            step_data['genai_completion_rate'] = info.get('genai_completion_rate', 0)
-            step_data['dnn_completion_rate'] = info.get('dnn_completion_rate', 0)
-            
-            # UE status
-            step_data['total_genai_ues'] = info.get('total_genai_ues', 0)
-            step_data['total_dnn_ues'] = info.get('total_dnn_ues', 0)
-            step_data['current_processing_ue'] = info.get('current_processing_ue', -1)
-            step_data['current_processing_type'] = info.get('current_processing_type', 'unknown')
-            
-        # Add agent losses if available
-        if agent_losses:
-            step_data.update(agent_losses)
-            
-        self.step_metrics.append(step_data)
-        
-    def save_to_csv(self):
-        """Save all metrics to CSV files"""
-        # Save epoch metrics
-        if self.epoch_metrics:
-            epoch_file = os.path.join(self.save_dir, f"epoch_metrics.csv")
-            with open(epoch_file, 'w', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=self.epoch_metrics[0].keys())
-                writer.writeheader()
-                writer.writerows(self.epoch_metrics)
-            print(f"Epoch metrics saved to: {epoch_file}")
-            
-        # Save step metrics  
-        if self.step_metrics:
-            step_file = os.path.join(self.save_dir, f"step_metrics.csv")
-            with open(step_file, 'w', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=self.step_metrics[0].keys())
-                writer.writeheader()
-                writer.writerows(self.step_metrics)
-            print(f"Step metrics saved to: {step_file}")
-    
-    def _convert_for_json(self, data):
-        """Convert data to JSON-serializable format"""
-        if isinstance(data, dict):
-            return {key: self._convert_for_json(value) for key, value in data.items()}
-        elif isinstance(data, list):
-            return [self._convert_for_json(item) for item in data]
-        elif isinstance(data, np.ndarray):
-            return data.tolist()
-        elif isinstance(data, (np.float32, np.float64)):
-            return float(data)
-        elif isinstance(data, (np.int32, np.int64)):
-            return int(data)
-        elif isinstance(data, np.bool_):
-            return bool(data)
-        else:
-            return data
-    
-    def save_to_json(self):
-        """Save all metrics to JSON files"""
-        # print(self.epoch_metrics)
-        # print(self.step_metrics[0])
-        # Save epoch metrics
-        if self.epoch_metrics:
-            epoch_file = os.path.join(self.save_dir, f"epoch_metrics.json")
-            with open(epoch_file, 'w') as f:
-                json.dump(self._convert_for_json(self.epoch_metrics), f, indent=2)
-            print(f"Epoch metrics (JSON) saved to: {epoch_file}")
-            
-        # Save step metrics
-        if self.step_metrics:
-            step_file = os.path.join(self.save_dir, f"step_metrics.json")
-            with open(step_file, 'w') as f:
-                json.dump(self._convert_for_json(self.step_metrics), f, indent=2)
-            print(f"Step metrics (JSON) saved to: {step_file}")
-    
-    def get_summary_stats(self):
-        """Get summary statistics"""
-        if not self.step_metrics:
-            return {}
-            
-        rewards = [m['reward'] for m in self.step_metrics]
-        energies = [m.get('energy_total', 0) for m in self.step_metrics]
-        latencies = [m.get('latency_total_avg', 0) for m in self.step_metrics]
-        qos_scores = [m.get('qos_quality_score_avg', 0) for m in self.step_metrics]
-        
-        return {
-            'total_steps': len(self.step_metrics),
-            'reward_stats': {
-                'mean': np.mean(rewards),
-                'std': np.std(rewards),
-                'min': np.min(rewards),
-                'max': np.max(rewards)
-            },
-            'energy_stats': {
-                'mean': np.mean(energies),
-                'std': np.std(energies),
-                'min': np.min(energies),
-                'max': np.max(energies)
-            },
-            'latency_stats': {
-                'mean': np.mean(latencies),
-                'std': np.std(latencies),
-                'min': np.min(latencies),
-                'max': np.max(latencies)
-            },
-            'qos_stats': {
-                'mean': np.mean(qos_scores),
-                'std': np.std(qos_scores),
-                'min': np.min(qos_scores),
-                'max': np.max(qos_scores)
-            }
-        }
 
 def validate_environment(env, agent, state_dim, action_dim, device, epoch):
     """
@@ -708,17 +353,11 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
 
     replay_buffer = ReplayBuffer(state_dim, action_dim, 1_000_000, device)
     rewards = []
-    
-    # Initialize metrics logger
-    metrics_logger = MetricsLogger(save_dir=os.path.join(output_dir, "metrics"))
 
     print_banner("Training Start", separator="*", num_star=90)
     for epoch in tqdm(range(args.num_epochs), desc="Training Progress"):
         total_reward = 0
-        episode_rewards = []
-        epoch_losses = {}  # Collect losses for this epoch
-        
-        for episode in range(args.num_episodes_per_epoch):
+        for _ in range(args.num_episodes_per_epoch):
             reset_result = env.reset()
             if isinstance(reset_result, tuple):
                 state, _ = reset_result
@@ -726,8 +365,6 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                 state = reset_result
             done = False
             ep_reward = 0
-            step_count = 0
-            
             while not done:
                 action = agent.sample_action(state)
                 if torch.is_tensor(action):
@@ -747,9 +384,7 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                     action_dict = {
                         "uav_movement": action[:uav_movement_dim],
                         "denoising_steps": denoising_steps
-                        # "denoising_steps": action[uav_movement_dim:uav_movement_dim + denoising_dim].astype(int)
                     }
-
                     env_action = action_dict
                 else:
                     env_action = action
@@ -771,76 +406,13 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                     continue
                 
                 replay_buffer.add(state, action, next_state, reward, done)
-                
-                # Get agent losses if training occurs
-                agent_losses = None
-                if replay_buffer.size > args.batch_size:
-                    loss_info = agent.train(replay_buffer, iterations=1, batch_size=args.batch_size)
-                    if isinstance(loss_info, dict):
-                        agent_losses = loss_info
-                        # Accumulate losses for epoch
-                        for loss_name, loss_value in agent_losses.items():
-                            if loss_name not in epoch_losses:
-                                epoch_losses[loss_name] = []
-                            epoch_losses[loss_name].append(loss_value)
-                    elif loss_info is not None:
-                        agent_losses = {'agent_loss': loss_info}
-                        if 'agent_loss' not in epoch_losses:
-                            epoch_losses['agent_loss'] = []
-                        epoch_losses['agent_loss'].append(loss_info)
-                
-                # Log step metrics with losses
-                metrics_logger.log_step_metrics(
-                    epoch=epoch,
-                    episode=episode, 
-                    step=step_count,
-                    state=state,
-                    action=env_action,
-                    reward=reward,
-                    info=info,
-                    agent_losses=agent_losses
-                )
-                
                 state = next_state
                 ep_reward += reward
-                step_count += 1
-                
-            episode_rewards.append(ep_reward)
+                if replay_buffer.size > args.batch_size:
+                    loss = agent.train(replay_buffer, iterations=1, batch_size=args.batch_size)
             total_reward += ep_reward
-            
         avg_reward = total_reward / args.num_episodes_per_epoch
         rewards.append(avg_reward)
-        
-        # Log epoch metrics
-        agent_epoch_losses = None
-        if epoch_losses:
-            # Calculate average losses for the epoch
-            agent_epoch_losses = {}
-            for loss_name, loss_values in epoch_losses.items():
-                if loss_values:
-                    agent_epoch_losses[f"avg_{loss_name}"] = np.mean(loss_values)
-                    agent_epoch_losses[f"std_{loss_name}"] = np.std(loss_values)
-        
-        reward_improved = metrics_logger.log_epoch_metrics(epoch, episode_rewards, agent_epoch_losses)
-        
-        # Auto-save plot at various intervals and milestones
-        should_save_plot = False
-        
-        # Regular intervals
-        if (epoch + 1) % 50 == 0:
-            should_save_plot = True
-            
-        # Important milestones
-        if (epoch + 1) in [10, 25, 100, 250, 500, 1000]:
-            should_save_plot = True
-            
-        # When reward improves significantly (every 100 epochs check)
-        if reward_improved and (epoch + 1) % 25 == 0:
-            should_save_plot = True
-            print(f"🎯 New best reward achieved: {avg_reward:.4f} at epoch {epoch + 1}")
-            
-        if should_save_plot:
-            metrics_logger.save_loss_plot(save_interval=50)
         
         # Validation every 50 epochs
         if (epoch + 1) % 50 == 0:
@@ -856,71 +428,16 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
             logger.record_tabular('Replay Buffer Size', replay_buffer.size)
             logger.dump_tabular()
         np.save(os.path.join(output_dir, "epoch_rewards.npy"), np.array(rewards))
-        
-        # Save metrics periodically
-        if (epoch + 1) % 100 == 0:
-            # metrics_logger.save_to_csv()
-            metrics_logger.save_to_json()
     
     # Final validation
     print_banner("FINAL VALIDATION", separator="=", num_star=90)
     validate_environment(env, agent, state_dim, action_dim, device, args.num_epochs)
     
-    # Save final metrics
-    print_banner("SAVING FINAL METRICS", separator="=", num_star=90)
-    metrics_logger.save_to_csv()
-    metrics_logger.save_to_json()
-    
-    # Save final comprehensive plot
-    final_plot_path = metrics_logger.save_final_plot()
-    
-    # Print summary statistics
-    summary_stats = metrics_logger.get_summary_stats()
-    print("\n📊 TRAINING SUMMARY STATISTICS:")
-    print(f"   Total Training Steps: {summary_stats.get('total_steps', 0)}")
-    
-    if final_plot_path:
-        print(f"📈 Final training plot saved to: {final_plot_path}")
-    
-    if 'reward_stats' in summary_stats:
-        reward_stats = summary_stats['reward_stats']
-        print(f"\n🎯 REWARD STATISTICS:")
-        print(f"   Mean: {reward_stats['mean']:.6f}")
-        print(f"   Std:  {reward_stats['std']:.6f}")
-        print(f"   Min:  {reward_stats['min']:.6f}")
-        print(f"   Max:  {reward_stats['max']:.6f}")
-    
-    if 'energy_stats' in summary_stats:
-        energy_stats = summary_stats['energy_stats']
-        print(f"\n⚡ ENERGY STATISTICS:")
-        print(f"   Mean: {energy_stats['mean']:.6f}")
-        print(f"   Std:  {energy_stats['std']:.6f}")
-        print(f"   Min:  {energy_stats['min']:.6f}")
-        print(f"   Max:  {energy_stats['max']:.6f}")
-    
-    if 'latency_stats' in summary_stats:
-        latency_stats = summary_stats['latency_stats']
-        print(f"\n⏱️ LATENCY STATISTICS:")
-        print(f"   Mean: {latency_stats['mean']:.6f}")
-        print(f"   Std:  {latency_stats['std']:.6f}")
-        print(f"   Min:  {latency_stats['min']:.6f}")
-        print(f"   Max:  {latency_stats['max']:.6f}")
-    
-    if 'qos_stats' in summary_stats:
-        qos_stats = summary_stats['qos_stats']
-        print(f"\n🎖️ QOS STATISTICS:")
-        print(f"   Mean: {qos_stats['mean']:.6f}")
-        print(f"   Std:  {qos_stats['std']:.6f}")
-        print(f"   Min:  {qos_stats['min']:.6f}")
-        print(f"   Max:  {qos_stats['max']:.6f}")
-    
-    print(f"\nTraining completed. Results saved to {output_dir}")
+    print(f"Training completed. Results saved to {output_dir}")
     print(f"Total epochs: {args.num_epochs}")
     print(f"Final average reward: {np.mean(rewards[-10:]):.4f}")
     print(f"Best average reward: {np.max(rewards):.4f}")
     print(f"Rewards trend: {rewards[-1] - rewards[0]:.4f} (final - initial)")
-    
-    return metrics_logger
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -1017,9 +534,4 @@ if __name__ == "__main__":
     
     validate_environment(env, dummy_agent, state_dim, action_dim, device, 0)
 
-    metrics_logger = train_agent(env, state_dim, action_dim, max_action, device, results_dir, args)
-    
-    print(f"\n🎉 All metrics saved to: {os.path.join(results_dir, 'metrics')}")
-    print(f"   - CSV files for analysis in Excel/Python")
-    print(f"   - JSON files for programmatic access")
-    print(f"   - Detailed step-by-step and epoch-by-epoch data")
+    train_agent(env, state_dim, action_dim, max_action, device, results_dir, args)

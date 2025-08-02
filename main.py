@@ -13,7 +13,244 @@ from utils.data_sampler import Data_Sampler
 from utils.logger import logger, setup_logger
 from torch.utils.tensorboard import SummaryWriter
 from env import GAIServiceEnv
+import csv
+from datetime import datetime
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import matplotlib.pyplot as plt
 # from jlgo.uav_env import UAVGenAIEnv
+
+class MetricsLogger:
+    def __init__(self, save_dir="metrics_logs"):
+        self.save_dir = save_dir
+        os.makedirs(save_dir, exist_ok=True)
+        
+        # Initialize data storage
+        self.epoch_metrics = []
+        self.step_metrics = []
+        self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # For loss plotting
+        self.loss_history = {
+            'epochs': [],
+            'losses': {},
+            'rewards': []
+        }
+        self.best_reward = float('-inf')  # Track best reward for milestone saving
+        
+    def log_epoch_metrics(self, epoch, rewards, agent_losses=None):
+        """Log metrics mỗi epoch"""
+        if isinstance(rewards, (int, float)):
+            rewards = [rewards]  # Convert single reward to list
+            
+        epoch_data = {
+            'epoch': epoch,
+            'avg_reward': np.mean(rewards),
+            'min_reward': np.min(rewards),
+            'max_reward': np.max(rewards),
+            'std_reward': np.std(rewards),
+            'total_episodes': len(rewards),
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # Add agent losses if available
+        if agent_losses:
+            epoch_data.update(agent_losses)
+            
+        self.epoch_metrics.append(epoch_data)
+        
+        # Update loss history for plotting
+        self.loss_history['epochs'].append(epoch)
+        avg_reward = np.mean(rewards)
+        self.loss_history['rewards'].append(avg_reward)
+        
+        # Check for reward improvement for milestone saving
+        reward_improved = False
+        if avg_reward > self.best_reward:
+            self.best_reward = avg_reward
+            reward_improved = True
+        
+        if agent_losses:
+            for loss_name, loss_value in agent_losses.items():
+                if loss_name not in self.loss_history['losses']:
+                    self.loss_history['losses'][loss_name] = []
+                self.loss_history['losses'][loss_name].append(loss_value)
+                
+        return reward_improved  # Return whether reward improved
+                
+    def save_loss_plot(self, save_interval=50):
+        """Tự động lưu plot loss và reward dưới dạng PNG"""
+        if len(self.loss_history['epochs']) == 0:
+            return
+            
+        current_epoch = self.loss_history['epochs'][-1]
+        
+        # Create figure with subplots
+        num_plots = 1 + len(self.loss_history['losses'])  # 1 for rewards + losses
+        if num_plots == 1:
+            fig, axes = plt.subplots(1, 1, figsize=(12, 4))
+            axes = [axes]
+        else:
+            fig, axes = plt.subplots(num_plots, 1, figsize=(12, 4*num_plots))
+            
+        # Plot rewards
+        axes[0].plot(self.loss_history['epochs'], self.loss_history['rewards'], 'b-', linewidth=2, label='Average Reward')
+        axes[0].set_xlabel('Episode')
+        axes[0].set_ylabel('Reward')
+        axes[0].set_title('Training Progress - Average Reward per Episode')
+        axes[0].grid(True, alpha=0.3)
+        axes[0].legend()
+        
+        # Plot losses
+        plot_idx = 1
+        for loss_name, loss_values in self.loss_history['losses'].items():
+            if len(loss_values) > 0:
+                # Ensure same length as epochs
+                epochs_for_loss = self.loss_history['epochs'][-len(loss_values):]
+                axes[plot_idx].plot(epochs_for_loss, loss_values, 'r-', linewidth=2, label=loss_name)
+                axes[plot_idx].set_xlabel('Episode')
+                axes[plot_idx].set_ylabel('Loss')
+                axes[plot_idx].set_title(f'Training Progress - {loss_name}')
+                axes[plot_idx].grid(True, alpha=0.3)
+                axes[plot_idx].legend()
+                plot_idx += 1
+        
+        # Remove empty subplots
+        for i in range(plot_idx, len(axes)):
+            fig.delaxes(axes[i])
+            
+        plt.tight_layout()
+        
+        # Save plot
+        plot_filename = f"loss_plot.png"
+        plot_path = os.path.join(self.save_dir, plot_filename)
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"📊 Loss plot saved: {plot_path}")
+        
+    def save_final_plot(self):
+        """Lưu plot cuối cùng với tất cả dữ liệu"""
+        if len(self.loss_history['epochs']) == 0:
+            return
+            
+        # Create comprehensive final plot
+        num_plots = 1 + len(self.loss_history['losses'])
+        if num_plots == 1:
+            fig, axes = plt.subplots(1, 1, figsize=(15, 4))
+            axes = [axes]
+        else:
+            fig, axes = plt.subplots(num_plots, 1, figsize=(15, 4*num_plots))
+            
+        # Plot rewards with moving average
+        epochs = self.loss_history['epochs']
+        rewards = self.loss_history['rewards']
+        
+        axes[0].plot(epochs, rewards, 'b-', linewidth=1, alpha=0.7, label='Average Reward')
+        
+        # Add moving average if enough data
+        if len(rewards) > 10:
+            window_size = min(50, len(rewards) // 10)
+            moving_avg = np.convolve(rewards, np.ones(window_size)/window_size, mode='valid')
+            moving_epochs = epochs[window_size-1:]
+            axes[0].plot(moving_epochs, moving_avg, 'r-', linewidth=2, label=f'Moving Average ({window_size})')
+            
+        axes[0].set_xlabel('Episode')
+        axes[0].set_ylabel('Reward')
+        axes[0].set_title('Final Training Results - Reward Progress')
+        axes[0].grid(True, alpha=0.3)
+        axes[0].legend()
+        
+        # Add statistics text
+        if len(rewards) > 0:
+            stats_text = f'Final Reward: {rewards[-1]:.4f}\n'
+            stats_text += f'Best Reward: {max(rewards):.4f}\n'
+            stats_text += f'Average: {np.mean(rewards):.4f}\n'
+            stats_text += f'Std: {np.std(rewards):.4f}'
+            axes[0].text(0.02, 0.98, stats_text, transform=axes[0].transAxes, 
+                        verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+        
+        # Plot losses
+        plot_idx = 1
+        for loss_name, loss_values in self.loss_history['losses'].items():
+            if len(loss_values) > 0:
+                epochs_for_loss = epochs[-len(loss_values):]
+                axes[plot_idx].plot(epochs_for_loss, loss_values, 'r-', linewidth=2, label=loss_name)
+                
+                # Add moving average for loss too
+                if len(loss_values) > 10:
+                    window_size = min(20, len(loss_values) // 5)
+                    loss_moving_avg = np.convolve(loss_values, np.ones(window_size)/window_size, mode='valid')
+                    loss_moving_epochs = epochs_for_loss[window_size-1:]
+                    axes[plot_idx].plot(loss_moving_epochs, loss_moving_avg, 'g-', linewidth=2, label=f'Moving Average ({window_size})')
+                
+                axes[plot_idx].set_xlabel('Episode')
+                axes[plot_idx].set_ylabel('Loss')
+                axes[plot_idx].set_title(f'Final Training Results - {loss_name}')
+                axes[plot_idx].grid(True, alpha=0.3)
+                axes[plot_idx].legend()
+                
+                # Add loss statistics
+                if len(loss_values) > 0:
+                    loss_stats_text = f'Final Loss: {loss_values[-1]:.6f}\n'
+                    loss_stats_text += f'Min Loss: {min(loss_values):.6f}\n'
+                    loss_stats_text += f'Average: {np.mean(loss_values):.6f}'
+                    axes[plot_idx].text(0.02, 0.98, loss_stats_text, transform=axes[plot_idx].transAxes,
+                                      verticalalignment='top', bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.5))
+                plot_idx += 1
+        
+        # Remove empty subplots
+        for i in range(plot_idx, len(axes)):
+            fig.delaxes(axes[i])
+            
+        plt.tight_layout()
+        
+        # Save final plot
+        final_plot_filename = f"final_training_plot_{self.timestamp}.png"
+        final_plot_path = os.path.join(self.save_dir, final_plot_filename)
+        plt.savefig(final_plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"🎯 Final training plot saved: {final_plot_path}")
+        return final_plot_path
+        
+    def _convert_for_json(self, data):
+        """Convert data to JSON-serializable format"""
+        if isinstance(data, dict):
+            return {key: self._convert_for_json(value) for key, value in data.items()}
+        elif isinstance(data, list):
+            return [self._convert_for_json(item) for item in data]
+        elif isinstance(data, np.ndarray):
+            return data.tolist()
+        elif isinstance(data, (np.float32, np.float64)):
+            return float(data)
+        elif isinstance(data, (np.int32, np.int64)):
+            return int(data)
+        elif isinstance(data, np.bool_):
+            return bool(data)
+        else:
+            return data
+    
+    def save_to_csv(self):
+        """Save all metrics to CSV files"""
+        # Save epoch metrics
+        if self.epoch_metrics:
+            epoch_file = os.path.join(self.save_dir, f"epoch_metrics.csv")
+            with open(epoch_file, 'w', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=self.epoch_metrics[0].keys())
+                writer.writeheader()
+                writer.writerows(self.epoch_metrics)
+            print(f"Epoch metrics saved to: {epoch_file}")
+    
+    def save_to_json(self):
+        """Save all metrics to JSON files"""
+        # Save epoch metrics
+        if self.epoch_metrics:
+            epoch_file = os.path.join(self.save_dir, f"epoch_metrics.json")
+            with open(epoch_file, 'w') as f:
+                json.dump(self._convert_for_json(self.epoch_metrics), f, indent=2)
+            print(f"Epoch metrics (JSON) saved to: {epoch_file}")
+
 hyperparameters = {
     'halfcheetah-medium-v2':         {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 9.0,  'top_k': 1},
     'hopper-medium-v2':              {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 9.0,  'top_k': 2},
@@ -75,7 +312,7 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
     # data_sampler = Data_Sampler(dataset, device, args.reward_tune)
     # utils.print_banner('Loaded buffer')
 
-    if args.algo == 'ql':
+    if args.algo == 'dql':
         from agents.ql_diffusion import Diffusion_QL as Agent
         agent = Agent(state_dim=state_dim,
                       action_dim=action_dim,
@@ -91,17 +328,6 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                       lr_decay=args.lr_decay,
                       lr_maxt=args.num_epochs,
                       grad_norm=args.gn)
-    elif args.algo == 'bc':
-        from agents.bc_diffusion import Diffusion_BC as Agent
-        agent = Agent(state_dim=state_dim,
-                      action_dim=action_dim,
-                      max_action=max_action,
-                      device=device,
-                      discount=args.discount,
-                      tau=args.tau,
-                      beta_schedule=args.beta_schedule,
-                      n_timesteps=args.T,
-                      lr=args.lr)
     elif args.algo == 'ppo':
         from agents.ppo_diffusion import Diffusion_PPO as Agent
         agent = Agent(state_dim=state_dim,
@@ -114,24 +340,6 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                     #   n_timesteps=args.T,
                     #   lr=args.lr
                     )
-    # elif args.algo == 'dql':
-    #     from agents.dql_diffusion import Diffusion_DQL as Agent
-    #     # agent = Agent(state_dim, action_dim, max_action, device, args.discount, args.tau,
-    #     #               args.beta_schedule, args.T, args.lr)
-    #     agent = Agent(state_dim=state_dim,
-    #                   action_dim=action_dim,
-    #                   max_action=max_action,
-    #                   device=device,
-    #                   discount=args.discount,
-    #                   tau=args.tau,
-    #                   max_q_backup=args.max_q_backup,
-    #                   eta=args.eta,
-    #                   beta_schedule=args.beta_schedule,
-    #                   n_timesteps=args.T,
-    #                   lr=args.lr,
-    #                   lr_decay=args.lr_decay,
-    #                   lr_maxt=args.num_epochs,
-    #                   grad_norm=args.gn)
     elif args.algo == 'gppo':
         from agents.gaussian_ppo import Gaussian_PPO as Agent
         agent = Agent(state_dim=state_dim,
@@ -161,6 +369,13 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                       lr_decay=args.lr_decay,
                       lr_maxt=args.num_epochs,
                       grad_norm=args.gn)
+    elif args.algo == 'a2c':
+        from agents.a2c_agent import A2C_Agent as Agent
+        agent = Agent(state_dim=state_dim,
+                      action_dim=action_dim,
+                      max_action=max_action,
+                      device=device
+                      )
     else:
         raise ValueError(f"Unsupported algorithm: {args.algo}")
 
@@ -176,6 +391,9 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
 
     # Khởi tạo buffer động
     replay_buffer = ReplayBuffer(state_dim, action_dim, max_size=1_000_000, device=device)
+    
+    # Initialize MetricsLogger
+    metrics_logger = MetricsLogger(save_dir=os.path.join(output_dir, "metrics"))
 
     episode_rewards = []  # Thêm dòng này để lưu reward mỗi episode
 
@@ -186,6 +404,8 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
         # print(len(state))
         done = False
         episode_reward = 0  # Lưu reward của episode hiện tại
+        episode_losses = {}  # Collect losses for this episode
+        
         while not done:
             action = agent.sample_action(state)
             next_state, reward, done, info = env.step(action)
@@ -197,8 +417,54 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
 
             # Train agent mỗi bước hoặc mỗi batch
             if replay_buffer.size > args.batch_size:
-                agent.train(replay_buffer, iterations=1, batch_size=args.batch_size)
+                loss_info = agent.train(replay_buffer, iterations=1, batch_size=args.batch_size)
+                # Collect losses if returned
+                if isinstance(loss_info, dict):
+                    for loss_name, loss_value in loss_info.items():
+                        if loss_name not in episode_losses:
+                            episode_losses[loss_name] = []
+                        episode_losses[loss_name].append(loss_value)
+                elif loss_info is not None:
+                    if 'agent_loss' not in episode_losses:
+                        episode_losses['agent_loss'] = []
+                    episode_losses['agent_loss'].append(loss_info)
+                    
         episode_rewards.append(episode_reward)  # Lưu reward của episode
+        
+        
+        
+        # Calculate average losses for the episode
+        agent_episode_losses = None
+        if episode_losses:
+            agent_episode_losses = {}
+            for loss_name, loss_values in episode_losses.items():
+                if loss_values:
+                    agent_episode_losses[f"avg_{loss_name}"] = np.mean(loss_values)
+                    agent_episode_losses[f"std_{loss_name}"] = np.std(loss_values)
+        
+        # Log episode metrics
+        reward_improved = metrics_logger.log_epoch_metrics(episode, episode_reward, agent_episode_losses)
+        
+        # Auto-save plot at various intervals
+        should_save_plot = False
+        
+        # Regular intervals
+        if (episode + 1) % 50 == 0:
+            should_save_plot = True
+            
+        # Important milestones
+        if (episode + 1) in [10, 25, 100, 250, 500, 1000]:
+            should_save_plot = True
+            
+        # When reward improves significantly (every 25 episodes check)
+        if reward_improved and (episode + 1) % 25 == 0:
+            should_save_plot = True
+            print(f"🎯 New best reward achieved: {episode_reward:.4f} at episode {episode + 1}")
+            
+        if should_save_plot:
+            metrics_logger.save_loss_plot(save_interval=50)
+        
+        np.save(os.path.join(output_dir, f"episode_rewards_{args.algo}.npy"), np.array(episode_rewards))
 
         # Evaluation
         eval_res, eval_res_std, eval_norm_res, eval_norm_res_std = eval_policy(agent, args.env_name, args.seed,
@@ -250,6 +516,16 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
 
     # Sau khi train xong, lưu reward ra file
     np.save(os.path.join(output_dir, f"main/episode_rewards_{args.algo}.npy"), np.array(episode_rewards))
+    
+    # Save final training plot
+    utils.print_banner(f"Training Complete - Saving Final Plot", separator="*", num_star=90)
+    metrics_logger.save_final_plot()
+    
+    # Save final metrics to files
+    metrics_logger.save_to_csv()
+    metrics_logger.save_to_json()
+    
+    print(f"📊 Final training plots and metrics saved to: {metrics_logger.save_dir}")
 
     # writer.close()
 
@@ -339,7 +615,7 @@ if __name__ == "__main__":
     parser.add_argument("--T", default=5, type=int)
     parser.add_argument("--beta_schedule", default='linear', type=str)
     ### Algo Choice ###
-    parser.add_argument("--algo", default="bc", type=str)  # ['bc', 'ql']
+    parser.add_argument("--algo", default="dql", type=str)  # ['bc', 'ql']
     parser.add_argument("--ms", default='online', type=str, help="['online', 'offline']")
     # parser.add_argument("--top_k", default=1, type=int)
 
