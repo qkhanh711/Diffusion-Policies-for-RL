@@ -574,7 +574,7 @@ def validate_environment(env, agent, state_dim, action_dim, device, epoch):
 hyperparameters = {
     'uav-genai-env': {
         'lr': 3e-4, 'eta': 1.0, 'max_q_backup': False, 'reward_tune': 'no',
-        'eval_freq': 50, 'num_epochs': 10000, 'num_episodes_per_epoch': 5,
+       'eval_freq': 50, 'num_epochs': 500  , 'num_episodes_per_epoch': 5,
         'gn': 5.0, 'top_k': 1
     },
 }
