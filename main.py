@@ -477,18 +477,12 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
         
         if (episode + 1) % 10 == 0:
             print(saved_info)
-        
-        # Regular intervals
-        if (episode + 1) % 10 == 0:
             should_save_plot = True
+            metrics_logger.save_loss_plot(save_interval=50)
             
         # When reward improves significantly (every 25 episodes check)
         if reward_improved and (episode + 1) % 25 == 0:
-            should_save_plot = True
             print(f"🎯 New best reward achieved: {episode_reward:.4f} at episode {episode + 1}")
-            
-        if should_save_plot:
-            metrics_logger.save_loss_plot(save_interval=50)
         
         np.save(os.path.join(output_dir, f"episode_rewards_{args.algo}.npy"), np.array(episode_rewards))
 
