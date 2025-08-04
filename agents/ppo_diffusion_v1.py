@@ -47,24 +47,24 @@ class Diffusion_PPO(object):
                  tau=0.95,
                  clip_param=0.2,
                  beta_schedule='linear',
-                 n_timesteps=10,  # More timesteps for better action quality
-                 ema_decay=0.99,  # Faster EMA for more exploration
-                 step_start_ema=500,  # Start EMA earlier
-                 update_ema_every=3,  # More frequent EMA updates
-                 lr=2e-4,  # Higher learning rate for faster learning
+                 n_timesteps=5,
+                 ema_decay=0.995,
+                 step_start_ema=1000,
+                 update_ema_every=10,  # Less frequent EMA updates
+                 lr=5e-5,  # Very conservative learning rate
                  lr_decay=True,
                  lr_maxt=10000,
-                 grad_norm=1.0,
-                 entropy_coef=0.02,  # Higher entropy for more exploration
-                 value_loss_coef=0.25,  # Lower value loss weight
-                 warmup_steps=200,  # Shorter warmup
+                 grad_norm=0.5,  # Smaller grad norm for stability
+                 entropy_coef=0.01,
+                 value_loss_coef=0.5,
+                 warmup_steps=500,
                  ):
 
         self.model = MLP(state_dim=state_dim, action_dim=action_dim, device=device)
 
         self.actor = Diffusion(state_dim=state_dim, action_dim=action_dim, model=self.model, max_action=max_action,
                                beta_schedule=beta_schedule, n_timesteps=n_timesteps,).to(device)
-        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=lr, betas=(0.9, 0.999), eps=1e-8)
+        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=lr, weight_decay=1e-5)  # Add weight decay
 
         self.lr_decay = lr_decay
         self.grad_norm = grad_norm
@@ -77,11 +77,50 @@ class Diffusion_PPO(object):
         self.warmup_steps = warmup_steps
 
         self.critic = Critic(state_dim, action_dim).to(device)
-        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=lr*3, betas=(0.9, 0.999))  # Critic learns much faster
+        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=lr*2, weight_decay=1e-5)  # Critic learns faster
 
         if lr_decay:
-            self.actor_lr_scheduler = CosineAnnealingLR(self.actor_optimizer, T_max=lr_maxt, eta_min=lr*0.1)  # Don't decay too much
-            self.critic_lr_scheduler = CosineAnnealingLR(self.critic_optimizer, T_max=lr_maxt, eta_min=lr*0.3)
+            self.actor_lr_scheduler = CosineAnnealingLR(self.actor_optimizer, T_max=lr_maxt, eta_min=lr*0.1)
+            self.critic_lr_scheduler = CosineAnnealingLR(self.critic_optimizer, T_max=lr_maxt, eta_min=lr*0.2)
+
+        self.entropy_coef = entropy_coef
+        self.value_coef = value_loss_coef
+        self.initial_lr = lr
+        self.state_dim = state_dim
+        self.max_action = max_action
+        self.action_dim = action_dim
+        self.gamma = gamma
+        self.tau = tau
+        self.clip_param = clip_param  # Use standard PPO clip
+        self.device = device
+        
+        # Track best experiences for supervised learning
+        self.best_experiences = []
+        self.max_best_size = 1000
+        self.update_frequency = 0
+
+        self.model = MLP(state_dim=state_dim, action_dim=action_dim, device=device)
+
+        self.actor = Diffusion(state_dim=state_dim, action_dim=action_dim, model=self.model, max_action=max_action,
+                               beta_schedule=beta_schedule, n_timesteps=n_timesteps,).to(device)
+        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=lr)
+
+        self.lr_decay = lr_decay
+        self.grad_norm = grad_norm
+
+        self.step = 0
+        self.step_start_ema = step_start_ema
+        self.ema = EMA(ema_decay)
+        self.ema_model = copy.deepcopy(self.actor)
+        self.update_ema_every = update_ema_every
+        self.warmup_steps = warmup_steps
+
+        self.critic = Critic(state_dim, action_dim).to(device)
+        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=lr)
+
+        if lr_decay:
+            self.actor_lr_scheduler = CosineAnnealingLR(self.actor_optimizer, T_max=lr_maxt, eta_min=0.)
+            self.critic_lr_scheduler = CosineAnnealingLR(self.critic_optimizer, T_max=lr_maxt, eta_min=0.)
 
         self.entropy_coef = entropy_coef
         self.value_coef = value_loss_coef
@@ -98,6 +137,22 @@ class Diffusion_PPO(object):
         if self.step < self.step_start_ema:
             return
         self.ema.update_model_average(self.ema_model, self.actor)
+    
+    def add_best_experience(self, state, action, advantage):
+        """Add good experiences to supervised learning buffer"""
+        if advantage > 0:  # Only store positive advantage experiences
+            experience = {
+                'state': state.clone().detach(),
+                'action': action.clone().detach(),
+                'advantage': advantage.item()
+            }
+            self.best_experiences.append(experience)
+            
+            # Keep only best experiences
+            if len(self.best_experiences) > self.max_best_size:
+                # Sort by advantage and keep top experiences
+                self.best_experiences.sort(key=lambda x: x['advantage'], reverse=True)
+                self.best_experiences = self.best_experiences[:self.max_best_size]
 
 
     def train(self, replay_buffer, iterations, batch_size=100, log_writer=None):
@@ -108,7 +163,7 @@ class Diffusion_PPO(object):
                 # Sample batch
                 state, action, next_state, reward, not_done = replay_buffer.sample(batch_size)
 
-                """ Value Function Training (Train first for stable baseline) """
+                """ Value Function Training """
                 with torch.no_grad():
                     next_values = self.critic(next_state).squeeze()
                     returns = reward.squeeze() + self.gamma * next_values * not_done.squeeze()
@@ -120,8 +175,8 @@ class Diffusion_PPO(object):
                 if advantages.std() > 1e-8:
                     advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
                 
-                # Train value function multiple times
-                for _ in range(3):
+                # Train value function
+                for _ in range(2):  # Reduce iterations
                     value_pred = self.critic(state).squeeze()
                     value_loss = F.mse_loss(value_pred, returns.detach())
                     
@@ -130,49 +185,55 @@ class Diffusion_PPO(object):
                     torch.nn.utils.clip_grad_norm_(self.critic.parameters(), self.grad_norm)
                     self.critic_optimizer.step()
 
-                """ Policy Training - Advantage-Weighted Behavior Cloning """
-                # Only train on actions with positive advantages (good actions)
-                positive_mask = advantages > 0
+                """ Collect Best Experiences """
+                for i in range(len(advantages)):
+                    if advantages[i] > 0.5:  # Only very good experiences
+                        self.add_best_experience(state[i:i+1], action[i:i+1], advantages[i])
+
+                """ Policy Training - Supervised Learning from Best Experiences """
+                policy_loss = torch.tensor(0.0)
                 
-                if positive_mask.sum() > 0:  # Only if we have positive advantages
-                    # Get subset of good transitions
-                    good_states = state[positive_mask]
-                    good_actions = action[positive_mask]
-                    good_advantages = advantages[positive_mask]
+                # Train on current good experiences
+                good_mask = advantages > 0
+                if good_mask.sum() > 0:
+                    good_states = state[good_mask]
+                    good_actions = action[good_mask]
                     
-                    # Weight by advantage magnitude (higher advantage = more important)
-                    weights = torch.softmax(good_advantages, dim=0)  # Softmax to normalize
+                    # Simple behavioral cloning on good actions
+                    bc_loss = self.actor.loss(good_actions, good_states).mean()
+                    policy_loss = bc_loss
+                
+                # Train on historical best experiences (every few steps)
+                if len(self.best_experiences) > 50 and self.update_frequency % 5 == 0:
+                    # Sample from best experiences
+                    num_samples = min(32, len(self.best_experiences))
+                    sampled_experiences = np.random.choice(self.best_experiences, num_samples, replace=False)
                     
-                    # Compute weighted behavioral cloning loss
-                    bc_losses = self.actor.loss(good_actions, good_states)
-                    weighted_bc_loss = (bc_losses * weights.detach()).mean()
+                    best_states = torch.cat([exp['state'] for exp in sampled_experiences], dim=0)
+                    best_actions = torch.cat([exp['action'] for exp in sampled_experiences], dim=0)
                     
-                    # Add small regularization
-                    reg_loss = 0.001 * bc_losses.mean()
-                    total_actor_loss = weighted_bc_loss + reg_loss
-                    
-                    # Policy update
+                    # Supervised learning on best experiences
+                    supervised_loss = self.actor.loss(best_actions, best_states).mean()
+                    policy_loss = policy_loss + 0.5 * supervised_loss
+
+                # Update policy if we have a valid loss
+                if policy_loss > 0 and not torch.isnan(policy_loss):
                     self.actor_optimizer.zero_grad()
-                    total_actor_loss.backward()
+                    policy_loss.backward()
                     torch.nn.utils.clip_grad_norm_(self.actor.parameters(), self.grad_norm)
                     self.actor_optimizer.step()
-                    
-                    policy_loss = weighted_bc_loss
-                else:
-                    # No positive advantages, skip policy update
-                    policy_loss = torch.tensor(0.0)
-                    total_actor_loss = torch.tensor(0.0)
 
                 # EMA update
                 if self.step % self.update_ema_every == 0:
                     self.step_ema()
 
                 self.step += 1
+                self.update_frequency += 1
 
                 # Log metrics
                 metric['ppo_loss'].append(float(policy_loss.item()) if not torch.isnan(policy_loss) else 0.0)
                 metric['value_loss'].append(float(value_loss.item()) if not torch.isnan(value_loss) else 0.0)
-                metric['actor_loss'].append(float(total_actor_loss.item()) if not torch.isnan(total_actor_loss) else 0.0)
+                metric['actor_loss'].append(float(policy_loss.item()) if not torch.isnan(policy_loss) else 0.0)
 
             except Exception as e:
                 print(f"Error in PPO training iteration {iteration}: {e}")
@@ -181,8 +242,8 @@ class Diffusion_PPO(object):
                 metric['actor_loss'].append(0.0)
                 continue
 
-        # Learning rate scheduling (more conservative)
-        if self.lr_decay and self.step % 200 == 0:  # Even less frequent LR updates
+        # Learning rate scheduling (very conservative)
+        if self.lr_decay and self.step % 500 == 0:  # Very infrequent updates
             self.actor_lr_scheduler.step()
             self.critic_lr_scheduler.step()
 
@@ -191,23 +252,11 @@ class Diffusion_PPO(object):
     def sample_action(self, state):
         state = torch.FloatTensor(state.reshape(1, -1)).to(self.device)
         with torch.no_grad():
-            # Mix exploration: Sometimes use main model for exploration
+            # Use EMA model when available for stability
             if self.step > self.step_start_ema:
-                # 80% EMA (stable), 20% main model (exploration)
-                if np.random.random() < 0.8:
-                    action = self.ema_model.sample(state)
-                else:
-                    action = self.actor.sample(state)
+                action = self.ema_model.sample(state)
             else:
                 action = self.actor.sample(state)
-                
-            # Add small noise for exploration in early training
-            if self.step < 2000:
-                noise_scale = 0.1 * (1.0 - self.step / 2000.0)  # Decreasing noise
-                noise = torch.randn_like(action) * noise_scale
-                action = action + noise
-                action = torch.clamp(action, -self.max_action, self.max_action)
-                
         return action.cpu().data.numpy().flatten()
 
     def save_model(self, dir, id=None):

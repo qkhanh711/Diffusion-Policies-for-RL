@@ -573,7 +573,7 @@ def validate_environment(env, agent, state_dim, action_dim, device, epoch):
 
 hyperparameters = {
     'uav-genai-env': {
-        'lr': 3e-4, 'eta': 1.0, 'max_q_backup': False, 'reward_tune': 'no',
+        'lr': 4e-4, 'eta': 1.0, 'max_q_backup': False, 'reward_tune': 'no',
         'eval_freq': 50, 'num_epochs': 10000, 'num_episodes_per_epoch': 5,
         'gn': 5.0, 'top_k': 1
     },
@@ -662,7 +662,17 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                       action_dim=action_dim, 
                       max_action=max_action,
                       device=device,
-                      lr=0.0005)
+                      gamma=args.discount,
+                      tau=0.99,
+                      clip_param=0.2,
+                      beta_schedule=args.beta_schedule,
+                      n_timesteps=5,  # More timesteps
+                      lr=5e-3,  # Higher learning rate
+                      lr_decay=args.lr_decay,
+                      lr_maxt=args.num_epochs,
+                      grad_norm=1.0,
+                      entropy_coef=0.04,  # More exploration
+                      value_loss_coef=0.25)  # Less value weight
     elif args.algo == 'gppo':
         from agents.gaussian_ppo import Gaussian_PPO as Agent
         agent = Agent(

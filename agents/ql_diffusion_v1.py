@@ -128,13 +128,19 @@ class Diffusion_QL(object):
                 target_q = torch.min(target_q1, target_q2)
 
             target_q = (reward + not_done * self.discount * target_q).detach()
+            
+            # Clamp target_q to prevent extreme values
+            target_q = torch.clamp(target_q, min=-1e6, max=1e6)
 
             critic_loss = F.mse_loss(current_q1, target_q) + F.mse_loss(current_q2, target_q)
 
-            # Check for NaN or inf values
-            # if torch.isnan(critic_loss) or torch.isinf(critic_loss):
-            #     print(f"Warning: critic_loss is {critic_loss}")
-            #     continue
+            # Check for NaN or inf values and clamp them
+            if torch.isnan(critic_loss) or torch.isinf(critic_loss):
+                print(f"Warning: critic_loss is {critic_loss}, skipping this update")
+                continue
+                
+            # Additional safety: clamp critic loss to reasonable range
+            critic_loss = torch.clamp(critic_loss, max=1e6)
 
             self.critic_optimizer.zero_grad()
             critic_loss.backward()
@@ -153,10 +159,13 @@ class Diffusion_QL(object):
                 q_loss = - q2_new_action.mean() / q1_new_action.abs().mean().detach()
             actor_loss = bc_loss + self.eta * q_loss
 
-            # Check for NaN or inf values
-            # if torch.isnan(actor_loss) or torch.isinf(actor_loss):
-            #     print(f"Warning: actor_loss is {actor_loss}")
-            #     continue
+            # Check for NaN or inf values and clamp them
+            if torch.isnan(actor_loss) or torch.isinf(actor_loss):
+                print(f"Warning: actor_loss is {actor_loss}, skipping this update")
+                continue
+                
+            # Additional safety: clamp actor loss to reasonable range  
+            actor_loss = torch.clamp(actor_loss, max=1e6)
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
@@ -201,7 +210,18 @@ class Diffusion_QL(object):
         with torch.no_grad():
             action = self.actor.sample(state_rpt)
             q_value = self.critic_target.q_min(state_rpt, action).flatten()
-            idx = torch.multinomial(F.softmax(q_value), 1)
+            
+            # Handle inf/nan values in q_value
+            if torch.any(torch.isnan(q_value)) or torch.any(torch.isinf(q_value)):
+                # If q_values contain inf/nan, use random selection
+                idx = torch.randint(0, len(q_value), (1,))
+            else:
+                # Clamp q_values to prevent extreme values that could cause softmax issues
+                q_value = torch.clamp(q_value, min=-1e6, max=1e6)
+                # Use temperature to make softmax more stable
+                temperature = 1.0
+                q_value = q_value / temperature
+                idx = torch.multinomial(F.softmax(q_value, dim=0), 1)
         return action[idx].cpu().data.numpy().flatten()
 
     def save_model(self, dir, id=None):
@@ -219,4 +239,5 @@ class Diffusion_QL(object):
         else:
             self.actor.load_state_dict(torch.load(f'{dir}/actor.pth'))
             self.critic.load_state_dict(torch.load(f'{dir}/critic.pth'))
+
 

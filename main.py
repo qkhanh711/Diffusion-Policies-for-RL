@@ -252,27 +252,9 @@ class MetricsLogger:
             print(f"Epoch metrics (JSON) saved to: {epoch_file}")
 
 hyperparameters = {
-    'halfcheetah-medium-v2':         {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 9.0,  'top_k': 1},
-    'hopper-medium-v2':              {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 9.0,  'top_k': 2},
-    'walker2d-medium-v2':            {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 1.0,  'top_k': 1},
-    'halfcheetah-medium-replay-v2':  {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 2.0,  'top_k': 0},
-    'hopper-medium-replay-v2':       {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 4.0,  'top_k': 2},
-    'walker2d-medium-replay-v2':     {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 4.0,  'top_k': 1},
-    'halfcheetah-medium-expert-v2':  {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 7.0,  'top_k': 0},
-    'hopper-medium-expert-v2':       {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 5.0,  'top_k': 2},
-    'bullet-walker2d-medium-expert-v0':     {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 2000, 'gn': 5.0,  'top_k': 1},
-    'antmaze-umaze-v0':              {'lr': 3e-4, 'eta': 0.5,   'max_q_backup': False,  'reward_tune': 'cql_antmaze', 'eval_freq': 50, 'num_epochs': 1000, 'gn': 2.0,  'top_k': 2},
-    'antmaze-umaze-diverse-v0':      {'lr': 3e-4, 'eta': 2.0,   'max_q_backup': True,   'reward_tune': 'cql_antmaze', 'eval_freq': 50, 'num_epochs': 1000, 'gn': 3.0,  'top_k': 2},
-    'antmaze-medium-play-v0':        {'lr': 1e-3, 'eta': 2.0,   'max_q_backup': True,   'reward_tune': 'cql_antmaze', 'eval_freq': 50, 'num_epochs': 1000, 'gn': 2.0,  'top_k': 1},
-    'antmaze-medium-diverse-v0':     {'lr': 3e-4, 'eta': 3.0,   'max_q_backup': True,   'reward_tune': 'cql_antmaze', 'eval_freq': 50, 'num_epochs': 1000, 'gn': 1.0,  'top_k': 1},
-    'antmaze-large-play-v0':         {'lr': 3e-4, 'eta': 4.5,   'max_q_backup': True,   'reward_tune': 'cql_antmaze', 'eval_freq': 50, 'num_epochs': 1000, 'gn': 10.0, 'top_k': 2},
-    'antmaze-large-diverse-v0':      {'lr': 3e-4, 'eta': 3.5,   'max_q_backup': True,   'reward_tune': 'cql_antmaze', 'eval_freq': 50, 'num_epochs': 1000, 'gn': 7.0,  'top_k': 1},
-    'pen-human-v1':                  {'lr': 3e-5, 'eta': 0.15,  'max_q_backup': False,  'reward_tune': 'normalize',   'eval_freq': 50, 'num_epochs': 1000, 'gn': 7.0,  'top_k': 2},
-    'pen-cloned-v1':                 {'lr': 3e-5, 'eta': 0.1,   'max_q_backup': False,  'reward_tune': 'normalize',   'eval_freq': 50, 'num_epochs': 1000, 'gn': 8.0,  'top_k': 2},
-    'kitchen-complete-v0':           {'lr': 3e-4, 'eta': 0.005, 'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 250 , 'gn': 9.0,  'top_k': 2},
-    'kitchen-partial-v0':            {'lr': 3e-4, 'eta': 0.005, 'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 1000, 'gn': 10.0, 'top_k': 2},
-    'kitchen-mixed-v0':              {'lr': 3e-4, 'eta': 0.005, 'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 1000, 'gn': 10.0, 'top_k': 0},
-    'gail-service-env':              {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
+    'gail-service-env': {
+        'lr': 3e-4, 'eta': 1.0, 'max_q_backup': False,  'reward_tune': 'no',          
+        'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
 }
 
 class ReplayBuffer:
@@ -334,29 +316,24 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                       action_dim=action_dim,
                       max_action=max_action,
                       device=device,
-                    #   discount=args.discount,
-                    #   tau=args.tau,
-                    #   beta_schedule=args.beta_schedule,
-                    #   n_timesteps=args.T,
-                    #   lr=args.lr
-                    )
+                      gamma=args.discount,
+                      tau=0.95,
+                      clip_param=0.2,
+                      beta_schedule=args.beta_schedule,
+                      n_timesteps=10,  # More timesteps
+                      lr=2e-4,  # Higher learning rate
+                      lr_decay=args.lr_decay,
+                      lr_maxt=args.num_epochs,
+                      grad_norm=1.0,
+                      entropy_coef=0.02,  # More exploration
+                      value_loss_coef=0.25)  # Less value weight
     elif args.algo == 'gppo':
         from agents.gaussian_ppo import Gaussian_PPO as Agent
         agent = Agent(state_dim=state_dim,
-                      action_dim=action_dim,
+                      action_dim=action_dim, 
                       max_action=max_action,
                       device=device,
-                      discount=args.discount,
-                      tau=args.tau,
-                      lr=args.lr,
-                      lr_decay=args.lr_decay,
-                      lr_maxt=args.num_epochs,
-                      grad_norm=args.gn,
-                      clip_ratio=0.2,
-                      value_clip_ratio=0.2,
-                      norm_adv=True,
-                      horizon_steps=1,
-                      ent_coef=0.01)
+                    )  # Less value weight
     elif args.algo == 'gdql':
         from agents.gaussian_dql import Gaussian_DQL as Agent
         agent = Agent(state_dim=state_dim,
@@ -423,11 +400,22 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                     for loss_name, loss_value in loss_info.items():
                         if loss_name not in episode_losses:
                             episode_losses[loss_name] = []
-                        episode_losses[loss_name].append(loss_value)
+                        
+                        # Handle case where loss_value is a list (from multiple iterations)
+                        if isinstance(loss_value, list):
+                            # Filter out inf/nan values and extend the list
+                            valid_values = [v for v in loss_value if np.isfinite(v)]
+                            episode_losses[loss_name].extend(valid_values)
+                        else:
+                            # Single value, check if finite before adding
+                            if np.isfinite(loss_value):
+                                episode_losses[loss_name].append(loss_value)
                 elif loss_info is not None:
                     if 'agent_loss' not in episode_losses:
                         episode_losses['agent_loss'] = []
-                    episode_losses['agent_loss'].append(loss_info)
+                    # Handle single loss value
+                    if np.isfinite(loss_info):
+                        episode_losses['agent_loss'].append(loss_info)
                     
         episode_rewards.append(episode_reward)  # Lưu reward của episode
         
@@ -439,8 +427,24 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
             agent_episode_losses = {}
             for loss_name, loss_values in episode_losses.items():
                 if loss_values:
-                    agent_episode_losses[f"avg_{loss_name}"] = np.mean(loss_values)
-                    agent_episode_losses[f"std_{loss_name}"] = np.std(loss_values)
+                    # Ensure loss_values is a flat list of finite values
+                    flat_values = []
+                    for val in loss_values:
+                        if isinstance(val, (list, np.ndarray)):
+                            # If val is a list/array, extend flat_values with finite values
+                            flat_values.extend([v for v in val if np.isfinite(v)])
+                        elif np.isfinite(val):
+                            # Single finite value
+                            flat_values.append(val)
+                    
+                    if flat_values:
+                        # Convert to numpy array for robust computation
+                        flat_values = np.array(flat_values)
+                        agent_episode_losses[f"avg_{loss_name}"] = np.mean(flat_values)
+                        agent_episode_losses[f"std_{loss_name}"] = np.std(flat_values)
+                    else:
+                        # No valid values, set to NaN or skip
+                        print(f"Warning: No finite values found for {loss_name}, skipping aggregation")
         
         # Log episode metrics
         reward_improved = metrics_logger.log_epoch_metrics(episode, episode_reward, agent_episode_losses)
@@ -597,7 +601,7 @@ if __name__ == "__main__":
     parser.add_argument('--device', default=0, type=int)                       # device, {"cpu", "cuda", "cuda:0", "cuda:1"}, etc
     parser.add_argument("--env_name", default="gail-service-env", type=str)  # OpenAI gym environment name
     parser.add_argument("--dir", default="results", type=str)                    # Logging directory
-    parser.add_argument("--seed", default=0, type=int)                         # Sets Gym, PyTorch and Numpy seeds
+    parser.add_argument("--seed", default=43, type=int)                         # Sets Gym, PyTorch and Numpy seeds
     parser.add_argument("--num_steps_per_epoch", default=1000, type=int)
     parser.add_argument("--num_episodes", default=2000, type=int) # Added for online RL
 
@@ -609,7 +613,7 @@ if __name__ == "__main__":
 
     ### RL Parameters ###
     parser.add_argument("--discount", default=0.99, type=float)
-    parser.add_argument("--tau", default=0.005, type=float)
+    parser.add_argument("--tau", default=5, type=float)
 
     ### Diffusion Setting ###
     parser.add_argument("--T", default=5, type=int)
