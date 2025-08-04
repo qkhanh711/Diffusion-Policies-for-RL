@@ -656,7 +656,7 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                       lr_decay=args.lr_decay,
                       lr_maxt=args.num_epochs,
                       grad_norm=args.gn)
-    elif args.algo == 'ppo':
+    elif args.algo == 'dppo':
         from agents.ppo_diffusion import Diffusion_PPO as Agent
         agent = Agent(state_dim=state_dim,
                       action_dim=action_dim, 
@@ -691,7 +691,7 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                       epsilon=0.01
                       )
     elif args.algo == 'a2c':
-        from agents.a2c_agent import A2C_Agent as Agent
+        from agents.gaussian_a2c import Gaussian_A2C as Agent
         agent = Agent(
             state_dim=state_dim,
             action_dim=action_dim,
@@ -702,6 +702,22 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
             value_coef=0.45,
             ent_coef=0.01,
             grad_norm=1.0
+        )
+    elif args.algo == 'da2c':
+        from agents.a2c_diffusion import Diffusion_A2C as Agent
+        agent = Agent(
+            state_dim=state_dim,
+            action_dim=action_dim,
+            max_action=max_action,
+            device=device,
+            lr=0.0009,
+            gamma=0.99,
+            value_coef=0.45,
+            ent_coef=0.01,
+            grad_norm=1.0,
+            beta_schedule=args.beta_schedule,
+            n_timesteps=args.T,
+            eta=args.eta
         )
     else:
         raise ValueError(f"Unsupported algorithm: {args.algo}")
@@ -937,7 +953,7 @@ if __name__ == "__main__":
     parser.add_argument("--T", default=5, type=int)
     parser.add_argument("--beta_schedule", default='vp', type=str)
     # Algorithm choice
-    parser.add_argument("--algo", default="dql", type=str, choices=['ppo', 'dql', 'gppo', 'gdql', 'a2c'])
+    parser.add_argument("--algo", default="dql", type=str, choices=['dppo', 'dql', 'gppo', 'gdql', 'a2c', 'da2c'])
 
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -1006,7 +1022,7 @@ if __name__ == "__main__":
         from agents.gaussian_dql import Gaussian_DQL as DummyAgent
         dummy_agent = DummyAgent(state_dim=state_dim, action_dim=action_dim, max_action=max_action, device=device)
     elif args.algo == 'a2c':
-        from agents.a2c_agent import A2C_Agent as DummyAgent
+        from agents.gaussian_a2c import A2C_Agent as DummyAgent
         dummy_agent = DummyAgent(state_dim=state_dim, action_dim=action_dim, max_action=max_action, device=device)
     else:
         # Default random agent for initial validation

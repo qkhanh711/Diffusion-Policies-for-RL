@@ -29,7 +29,7 @@ class Critic(nn.Module):
     def forward(self, state):
         return self.net(state)
 
-class A2C_Agent:
+class Gaussian_A2C:
     def __init__(self, state_dim, action_dim, max_action, device, lr=3e-4, gamma=0.99, value_coef=0.5, ent_coef=0.01, grad_norm=1.0):
         self.device = device
         self.gamma = gamma

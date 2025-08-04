@@ -361,7 +361,7 @@ def run(algo=None, test = False):
             lr=0.0008
     )
     elif algo == 'a2c':
-        from agents.a2c_agent import A2C_Agent as Agent
+        from agents.gaussian_a2c import A2C_Agent as Agent
         agent = Agent(
             state_dim=state_dim,
             action_dim=action_dim,

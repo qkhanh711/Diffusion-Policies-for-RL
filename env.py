@@ -33,23 +33,24 @@ class GAIServiceEnv(gym.Env):
     def __init__(self, config):
         super().__init__()
         self.num_users = config["num_users"]
-        self.T = config.get("T", 10)
-        self.tau = 3.0  # seconds
-        self.Gmax = 1e13  # FLOPs
-        self.Mmax = 128e9  # bits = 16 GB
-        self.lambda_qos = 0.5
-        self.lambda_latency = 0.5
-        self.lambda_mem = 1.0
-        self.lambda_flops = 1.0
-        self.PVM = 1e12  # FLOPs/s
-        self.Rmem = 2.304e12  # bit/s
+        self.T = config["T"]
+        self.tau = config["sys_tau"]
+        self.Gmax = config["Gmax"]
+        self.Mmax = config["Mmax"]
+        self.lambda_qos = config["lambda_qos"]
+        self.lambda_latency = config["lambda_latency"]
+        self.lambda_mem = config["lambda_mem"]
+        self.lambda_flops = config["lambda_flops"]
+        self.PVM = config["PVM"]
+        self.Rmem = config["Rmem"]
         self.time_step = 0
         self.users = [User(i, config) for i in range(self.num_users)]
-        self.max_denoise_steps = config.get("max_denoise_steps", 50)
+        self.max_denoise_steps = config["max_denoise_steps"]
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(6*self.num_users,), dtype=np.float32)
         act_low = np.array([0, 1] * self.num_users)
         act_high = np.array([1, self.max_denoise_steps] * self.num_users)
         self.action_space = spaces.Box(low=act_low, high=act_high, dtype=np.float32)
+        self.psi = config.get("psi", 1)  
         self.reset()
 
 
@@ -182,7 +183,7 @@ class GAIServiceEnv(gym.Env):
         # Thưởng nếu thỏa tất cả ràng buộc
         bonus = 0
         if total_latency <= self.tau * self.num_users and total_flops <= self.Gmax and total_mem <= self.Mmax:
-            bonus = 1
+            bonus = self.psi
         reward = total_revenue - total_penalty + bonus
         info["total_revenue"] = total_revenue
         info["total_penalty"] = total_penalty

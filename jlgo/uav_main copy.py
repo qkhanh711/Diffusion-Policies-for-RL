@@ -336,7 +336,7 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                       epsilon=0.01
                       )
     elif args.algo == 'a2c':
-        from agents.a2c_agent import A2C_Agent as Agent
+        from agents.gaussian_a2c import A2C_Agent as Agent
         agent = Agent(
             state_dim=state_dim,
             action_dim=action_dim,
@@ -523,7 +523,7 @@ if __name__ == "__main__":
         from agents.gaussian_dql import Gaussian_DQL as DummyAgent
         dummy_agent = DummyAgent(state_dim=state_dim, action_dim=action_dim, max_action=max_action, device=device)
     elif args.algo == 'a2c':
-        from agents.a2c_agent import A2C_Agent as DummyAgent
+        from agents.gaussian_a2c import A2C_Agent as DummyAgent
         dummy_agent = DummyAgent(state_dim=state_dim, action_dim=action_dim, max_action=max_action, device=device)
     else:
         # Default random agent for initial validation

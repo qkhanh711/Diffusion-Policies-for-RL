@@ -20,6 +20,25 @@ matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 # from jlgo.uav_env import UAVGenAIEnv
 
+
+def EnvConfig(envName):
+    """Configuration for the environment"""
+    print(f"Using environment configuration for: {envName}")
+    return {
+        "num_users": 10,
+        "T": 10,
+        "sys_tau": 3,
+        "Gmax": 1e13,
+        "Mmax": 128e9,
+        "lambda_qos": 0.5,
+        "lambda_latency": 0.5,
+        "lambda_mem": 1.0,
+        "lambda_flops": 1.0,
+        "PVM": 1e12,
+        "Rmem": 2.304e12,
+        "max_denoise_steps": 50,
+    }
+
 class MetricsLogger:
     def __init__(self, save_dir="metrics_logs"):
         self.save_dir = save_dir
@@ -312,7 +331,7 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
     # data_sampler = Data_Sampler(dataset, device, args.reward_tune)
     # utils.print_banner('Loaded buffer')
 
-    if args.algo == 'dql':
+    if   args.algo == 'dql':
         from agents.ql_diffusion import Diffusion_QL as Agent
         agent = Agent(state_dim=state_dim,
                       action_dim=action_dim,
@@ -370,11 +389,18 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                       lr_maxt=args.num_epochs,
                       grad_norm=args.gn)
     elif args.algo == 'a2c':
-        from agents.a2c_agent import A2C_Agent as Agent
+        from agents.gaussian_a2c import Gaussian_A2C as Agent
         agent = Agent(state_dim=state_dim,
                       action_dim=action_dim,
                       max_action=max_action,
                       device=device
+                      )
+    elif args.algo == 'da2c':
+        from agents.a2c_diffusion import Diffusion_A2C as Agent
+        agent = Agent(state_dim=state_dim,
+                      action_dim=action_dim,
+                      max_action=max_action,
+                      device=device,
                       )
     else:
         raise ValueError(f"Unsupported algorithm: {args.algo}")
@@ -405,7 +431,7 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
         done = False
         episode_reward = 0  # Lưu reward của episode hiện tại
         episode_losses = {}  # Collect losses for this episode
-        
+        saved_info = None
         while not done:
             action = agent.sample_action(state)
             next_state, reward, done, info = env.step(action)
@@ -414,6 +440,7 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
             replay_buffer.add(state, action, next_state, reward, done)
             state = next_state
             episode_reward += reward  # Cộng dồn reward
+            saved_info = info  # Lưu thông tin từ env.step() nếu cần
 
             # Train agent mỗi bước hoặc mỗi batch
             if replay_buffer.size > args.batch_size:
@@ -448,12 +475,11 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
         # Auto-save plot at various intervals
         should_save_plot = False
         
+        if (episode + 1) % 10 == 0:
+            print(saved_info)
+        
         # Regular intervals
-        if (episode + 1) % 50 == 0:
-            should_save_plot = True
-            
-        # Important milestones
-        if (episode + 1) in [10, 25, 100, 250, 500, 1000]:
+        if (episode + 1) % 10 == 0:
             should_save_plot = True
             
         # When reward improves significantly (every 25 episodes check)
@@ -478,6 +504,9 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
         np.save(os.path.join(output_dir, "eval"), evaluations)
         logger.record_tabular('Average Episodic Reward', eval_res)
         logger.record_tabular('Average Episodic N-Reward', eval_norm_res)
+        logger.record_tabular('Avg Reward (last 10)', np.mean(episode_rewards[-10:]))
+        logger.record_tabular('Avg Reward (last 50)', np.mean(episode_rewards[-50:]) if len(episode_rewards) >= 50 else np.mean(episode_rewards))
+        logger.record_tabular('Best Reward', np.max(episode_rewards))
         logger.dump_tabular()
 
         # bc_loss = np.mean(loss_metric['bc_loss']) # This is not available in online RL
@@ -515,6 +544,9 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
             f.write(json.dumps(best_res))
 
     # Sau khi train xong, lưu reward ra file
+    if not os.path.exists(os.path.join(output_dir, "main")):
+        os.makedirs(os.path.join(output_dir, "main"))
+    utils.print_banner(f"Training Complete - Saving Episode Rewards", separator="*", num_star=90)
     np.save(os.path.join(output_dir, f"main/episode_rewards_{args.algo}.npy"), np.array(episode_rewards))
     
     # Save final training plot
@@ -534,39 +566,8 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
 # A fixed seed is used for the eval environment
 
 def eval_policy(policy, env_name, seed, eval_episodes=10):
-    config = {
-        "num_users": 10,
-        "max_time": 100,
-        "latency_limit": 5.0,
-        "max_flops": 1e12,
-        "max_vram": 8e9,
-        "penalty_qos": 10.0,
-        "penalty_latency": 5.0,
-        "max_denoise_steps": 50,
-        "lambda_qos": 10.0,
-        "lambda_latency": 5.0,
-        "lambda_mem": 1.0,
-        "lambda_flops": 1.0,
-        "T": 5,
-        "tau": 5.0,
-        "Gmax": 1e12,
-        "Mmax": 8e9,
-        "upload_rate": 10e6,
-        "mem_rate": 10e6,
-        "compute_power": 1e9,
-        "download_rate": 10e6,
-        "base_fid": 50,
-        "base_price": 0.1,
-        "base_price_mem": 0.05,
-        "base_price_flops": 0.00001,
-        "base_price_latency": 0.00001,
-        "base_price_qos": 0.00001,
-        "base_price_mem": 0.00001,
-        "base_price_flops": 0.00001,
-        "base_price_latency": 0.00001,
-        "base_price_qos": 0.00001,
-        
-    }
+    config =  EnvConfig(env_name)
+    # print(f"Evaluation config: {config}")
     eval_env = GAIServiceEnv(config)
     np.random.seed(seed + 100)
 
@@ -599,7 +600,7 @@ if __name__ == "__main__":
     parser.add_argument("--dir", default="results", type=str)                    # Logging directory
     parser.add_argument("--seed", default=0, type=int)                         # Sets Gym, PyTorch and Numpy seeds
     parser.add_argument("--num_steps_per_epoch", default=1000, type=int)
-    parser.add_argument("--num_episodes", default=2000, type=int) # Added for online RL
+    parser.add_argument("--num_episodes", default=500, type=int) # Added for online RL
 
     ### Optimization Setups ###
     parser.add_argument("--batch_size", default=256, type=int)
@@ -658,25 +659,30 @@ if __name__ == "__main__":
     variant.update(version=f"Diffusion-Policies-RL")
 
     # env = gym.make(args.env_name)
-    config = {
-        "num_users": 10,
-        "max_time": 100,
-        "latency_limit": 5.0,
-        "max_flops": 1e12,
-        "max_vram": 8e9,
-        "penalty_qos": 10.0,
-        "penalty_latency": 5.0,
-        "Dmax": 50,
-        "tau": 5,
-        "area": [-500, 500, -500, 500],
-        "z_range": [0, 1000],
-        "BS_position": [0,0,50],
-        "lambda_Q": 0.1,
-        "lambda_E": 0.5,
-        "lambda_L": 0.3,
-        "psi": 10,
-        
-    }
+    # config = {
+    #     "num_users": 10,
+    #     "max_time": 100,
+    #     "latency_limit": 5.0,
+    #     "max_flops": 1e12,
+    #     "max_vram": 8e9,
+    #     "penalty_qos": 10.0,
+    #     "penalty_latency": 5.0,
+    #     "Dmax": 50,
+    #     "sys_tau": 3,
+    #     "Gmax": 1e13,
+    #     "Mmax": 128e9,
+    #     "PVM": 1e12,
+    #     "area": [-500, 500, -500, 500],
+    #     "z_range": [0, 1000],
+    #     "BS_position": [0,0,50],
+    #     "lambda_Q": 0.1,
+    #     "lambda_E": 0.5,
+    #     "lambda_L": 0.3,
+    #     "psi": 10,
+    # }
+    config =  EnvConfig(args.env_name)
+
+    # print(f"Training config: {config}")
     env = GAIServiceEnv(config)
 
     env.seed(args.seed)
