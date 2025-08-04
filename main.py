@@ -335,10 +335,10 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                       max_action=max_action,
                       device=device,
                     #   discount=args.discount,
-                    #   tau=args.tau,
-                    #   beta_schedule=args.beta_schedule,
-                    #   n_timesteps=args.T,
-                    #   lr=args.lr
+                      tau=args.tau,
+                      beta_schedule=args.beta_schedule,
+                      n_timesteps=args.T,
+                      lr=args.lr
                     )
     elif args.algo == 'gppo':
         from agents.gaussian_ppo import Gaussian_PPO as Agent
@@ -599,7 +599,7 @@ if __name__ == "__main__":
     parser.add_argument("--dir", default="results", type=str)                    # Logging directory
     parser.add_argument("--seed", default=0, type=int)                         # Sets Gym, PyTorch and Numpy seeds
     parser.add_argument("--num_steps_per_epoch", default=1000, type=int)
-    parser.add_argument("--num_episodes", default=2000, type=int) # Added for online RL
+    parser.add_argument("--num_episodes", default=500, type=int) # Added for online RL
 
     ### Optimization Setups ###
     parser.add_argument("--batch_size", default=256, type=int)
