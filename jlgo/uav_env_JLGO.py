@@ -339,6 +339,9 @@ class UAVGenAIEnv(gym.Env):
 
         # Environment parameters (constructor args override config)
         self.num_ues = num_ues if num_ues != 3 else get_config_value_from_config(CONFIG, 'environment.num_ues', 3)
+        print(
+            f"✅ Using {self.num_ues} UEs (config: {get_config_value_from_config(CONFIG, 'environment.num_ues', 3)})"
+        )
         self.total_timesteps = total_timesteps if total_timesteps != 50 else get_config_value_from_config(CONFIG, 'environment.total_timesteps', 50)
         self.output_gen_path = output_gen_path if output_gen_path != "./data/output/generated_images/" else get_config_value_from_config(CONFIG, 'environment.output_gen_path', "./data/output/generated_images/")
         
@@ -357,7 +360,7 @@ class UAVGenAIEnv(gym.Env):
                 print(f"⚠️  WARNING: transmission_timeout ({self.transmission_timeout}s) >> episode_duration ({episode_duration}s)")
                 print("   Consider removing transmission_timeout from config - it's redundant with tau_slot_duration")
         else:
-            # transmission_timeout removed - use tau_slot_duration for per-transmission limits
+            # transmission_timeout removed -  tau_slot_duration for per-transmission limits
             self.transmission_timeout = None
 
         # UAV flight configuration - use config parametermax_horizontal_velocity
@@ -835,7 +838,7 @@ class UAVGenAIEnv(gym.Env):
             # Randomize image sizes (in pixels^2) for GenAI UEs
             supported_sizes = CONFIG.get('genai', {}).get('supported_image_sizes', [65536, 262144, 589824, 1048576])
             self.ue_image_sizes[genai_mask] = np.random.choice(supported_sizes, size=np.sum(genai_mask))
-            
+
             # Randomize quality requirements (target BRISQUE scores) for GenAI UEs
             quality_range = CONFIG.get('genai', {}).get('quality_range', {})
             min_brisque = quality_range.get('min_brisque', 15.0)
@@ -843,6 +846,14 @@ class UAVGenAIEnv(gym.Env):
             self.ue_quality_requirements[genai_mask] = np.random.uniform(
                 low=min_brisque, high=max_brisque, size=np.sum(genai_mask)
             )
+            
+            # Fixed quality requirements (target BRISQUE scores) for GenAI UEs
+            # quality_range = CONFIG.get('genai', {}).get('quality_range', {})
+            fixed_brisque = quality_range.get('fixed_brisque', 25.0)  # Use fixed value instead of range
+            self.ue_quality_requirements[genai_mask] = np.full(
+                np.sum(genai_mask), fixed_brisque
+            ) 
+            
             # Initialize denoising steps for GenAI UEs
             self.current_denoising_steps[genai_mask] = 10  # Default 10 steps
             self.target_quality_scores[genai_mask] = self.ue_quality_requirements[genai_mask]

@@ -19,7 +19,7 @@ from collections import OrderedDict
 from numbers import Number
 import os
 
-from tabulate import tabulate
+from utils.tabulate import tabulate
 import dateutil.tz
 import os.path as osp
 

@@ -1,0 +1,1 @@
+{"model selection": "online", "epoch": 27.0, "best normalized score avg": 42033.04413927447, "best normalized score std": 6860.185087598, "best raw score avg": 42033.04413927447, "best raw score std": 6860.185087598}

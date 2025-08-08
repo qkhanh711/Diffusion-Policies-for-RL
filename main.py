@@ -12,32 +12,14 @@ from utils import utils
 from utils.data_sampler import Data_Sampler
 from utils.logger import logger, setup_logger
 from torch.utils.tensorboard import SummaryWriter
-from env import GAIServiceEnv
+from env.gai_env import GAIServiceEnv, EnvConfig
 import csv
 from datetime import datetime
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 # from jlgo.uav_env import UAVGenAIEnv
-
-
-def EnvConfig(envName):
-    """Configuration for the environment"""
-    print(f"Using environment configuration for: {envName}")
-    return {
-        "num_users": 10,
-        "T": 10,
-        "sys_tau": 3,
-        "Gmax": 1e13,
-        "Mmax": 128e9,
-        "lambda_qos": 0.5,
-        "lambda_latency": 0.5,
-        "lambda_mem": 1.0,
-        "lambda_flops": 1.0,
-        "PVM": 1e12,
-        "Rmem": 2.304e12,
-        "max_denoise_steps": 50,
-    }
+from env.env import GAIServiceEnv_v1 as GAIServiceEnv, EnvConfig_v1 as EnvConfig
 
 class MetricsLogger:
     def __init__(self, save_dir="metrics_logs"):
@@ -292,6 +274,7 @@ hyperparameters = {
     'kitchen-partial-v0':            {'lr': 3e-4, 'eta': 0.005, 'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 1000, 'gn': 10.0, 'top_k': 2},
     'kitchen-mixed-v0':              {'lr': 3e-4, 'eta': 0.005, 'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 1000, 'gn': 10.0, 'top_k': 0},
     'gail-service-env':              {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
+    'gail-service-env-v1':           {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no',          'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
 }
 
 class ReplayBuffer:
@@ -590,7 +573,7 @@ if __name__ == "__main__":
     ### Experimental Setups ###
     parser.add_argument("--exp", default='exp_1', type=str)                    # Experiment ID
     parser.add_argument('--device', default=0, type=int)                       # device, {"cpu", "cuda", "cuda:0", "cuda:1"}, etc
-    parser.add_argument("--env_name", default="gail-service-env", type=str)  # OpenAI gym environment name
+    parser.add_argument("--env_name", default="gail-service-env-v1", type=str)  # OpenAI gym environment name
     parser.add_argument("--dir", default="results", type=str)                    # Logging directory
     parser.add_argument("--seed", default=0, type=int)                         # Sets Gym, PyTorch and Numpy seeds
     parser.add_argument("--num_steps_per_epoch", default=1000, type=int)
@@ -636,12 +619,12 @@ if __name__ == "__main__":
     args.top_k = hyperparameters[args.env_name]['top_k']
 
     # Setup Logging
-    file_name = f"{args.env_name}|{args.exp}|diffusion-{args.algo}|T-{args.T}"
+    file_name = f"{args.env_name}|{args.exp}/diffusion-{args.algo}|T-{args.T}"
     if args.lr_decay: file_name += '|lr_decay'
     file_name += f'|ms-{args.ms}'
 
     if args.ms == 'offline': file_name += f'|k-{args.top_k}'
-    file_name += f'|{args.seed}'
+    file_name += f'/{args.seed}'
 
     results_dir = os.path.join(args.output_dir, file_name)
     if not os.path.exists(results_dir):

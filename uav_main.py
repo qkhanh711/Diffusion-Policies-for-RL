@@ -17,6 +17,8 @@ from datetime import datetime
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
+import sys
+import yaml
 
 class MetricsLogger:
     def __init__(self, save_dir="metrics_logs"):
@@ -51,7 +53,7 @@ class MetricsLogger:
         # Add agent losses if available
         if agent_losses:
             epoch_data.update(agent_losses)
-            
+        # print(epoch_data) 
         self.epoch_metrics.append(epoch_data)
         
         # Update loss history for plotting
@@ -70,7 +72,6 @@ class MetricsLogger:
                 if loss_name not in self.loss_history['losses']:
                     self.loss_history['losses'][loss_name] = []
                 self.loss_history['losses'][loss_name].append(loss_value)
-                
         return reward_improved  # Return whether reward improved
                 
     def save_loss_plot(self, save_interval=50):
@@ -280,6 +281,7 @@ class MetricsLogger:
         if self.epoch_metrics:
             epoch_file = os.path.join(self.save_dir, f"epoch_metrics.csv")
             with open(epoch_file, 'w', newline='') as f:
+                print(self.epoch_metrics[0].keys())
                 writer = csv.DictWriter(f, fieldnames=self.epoch_metrics[0].keys())
                 writer.writeheader()
                 writer.writerows(self.epoch_metrics)
@@ -574,7 +576,7 @@ def validate_environment(env, agent, state_dim, action_dim, device, epoch):
 hyperparameters = {
     'uav-genai-env': {
         'lr': 3e-4, 'eta': 1.0, 'max_q_backup': False, 'reward_tune': 'no',
-        'eval_freq': 50, 'num_epochs': 500, 'num_episodes_per_epoch': 5,
+        'eval_freq': 50, 'num_episodes_per_epoch': 5,
         'gn': 5.0, 'top_k': 1
     },
 }
@@ -618,26 +620,32 @@ class ReplayBuffer:
         )
 
 def get_uav_config():
-    return {
-        "num_users": 5,
-        "Dmax": 20,
-        "tau": 30.0,  # Increased timeout to match config.yaml
-        "area": [-500, 500, -500, 500],
-        "z_range": [100, 1000],
-        "BS_position": [0, 0, 50],
-        "phi": 1.5e-9,
-        "f_inf_BS": 1.0e9,
-        "Cin_BS": 0.03125,
-        "lambda_Q": 0.5,
-        "lambda_L": 0.5,
-        "lambda_E": 1.0,
-        "psi": 10.0,
-        "Qreq": [30, 30, 30, 30, 30],
-        "T": 10,
-        "communication": {
-            "tau_slot_duration": 30.0  # Increased timeout for transmission
+    path = os.path.join(os.path.dirname(__file__), 'config.yaml')
+    if not os.path.exists(path):
+        return {
+            "num_users": 5,
+            "Dmax": 20,
+            "tau": 30.0,  # Increased timeout to match config.yaml
+            "area": [-500, 500, -500, 500],
+            "z_range": [100, 1000],
+            "BS_position": [0, 0, 50],
+            "phi": 1.5e-9,
+            "f_inf_BS": 1.0e9,
+            "Cin_BS": 0.03125,
+            "lambda_Q": 0.5,
+            "lambda_L": 0.5,
+            "lambda_E": 1.0,
+            "psi": 10.0,
+            "Qreq": [30, 30, 30, 30, 30],
+            "T": 10,
+            "communication": {
+                "tau_slot_duration": 30.0  # Increased timeout for transmission
+            }
         }
-    }
+    else:
+        with open(path, 'r') as f:
+            config = yaml.safe_load(f)
+        return config
 
 def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args):
     if args.algo == 'dql':
@@ -883,7 +891,7 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
     
     # Save final metrics
     print_banner("SAVING FINAL METRICS", separator="=", num_star=90)
-    metrics_logger.save_to_csv()
+    # metrics_logger.save_to_csv()
     metrics_logger.save_to_json()
     
     # Save final comprehensive plot
@@ -940,10 +948,10 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp", default='exp_1', type=str)
-    parser.add_argument("--device", default=0, type=int)
+    parser.add_argument("--device", default=1, type=int)
     parser.add_argument("--dir", default="results", type=str)
     parser.add_argument("--seed", default=43, type=int)
-    parser.add_argument("--num_epochs", default=2000, type=int)
+    parser.add_argument("--num_epochs", default=1, type=int)
     parser.add_argument("--num_episodes_per_epoch", default=100, type=int)
     parser.add_argument("--batch_size", default=256, type=int)
     parser.add_argument("--lr_decay", action='store_true')
@@ -955,9 +963,9 @@ if __name__ == "__main__":
     parser.add_argument("--algo", default="dql", type=str, choices=['dppo', 'dql', 'gppo', 'gdql', 'a2c', 'da2c'])
 
     args = parser.parse_args()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     hp = hyperparameters['uav-genai-env']
-    args.num_epochs = hp['num_epochs']
+    # args.num_epochs = hp['num_epochs']
     args.num_episodes_per_epoch = hp['num_episodes_per_epoch']
     args.lr = hp['lr']
     args.eta = hp['eta']
@@ -965,12 +973,12 @@ if __name__ == "__main__":
     args.gn = hp['gn']
     args.top_k = hp['top_k']
 
-    file_name = f"uav-genai-env|{args.exp}|diffusion-{args.algo}|T-{args.T}|{args.seed}"
+    config = get_uav_config()
+    file_name = f"uav-genai-env|{args.exp}/diffusion-{args.algo}|T-{args.T}/{config['environment']['num_ues']}_ues/{args.seed}"
     results_dir = os.path.join(args.dir, file_name)
     os.makedirs(results_dir, exist_ok=True)
     print_banner(f"Saving location: {results_dir}")
 
-    config = get_uav_config()
     env = UAVGenAIEnv(config)
     # Reset environment first to initialize all state variables
     env.reset()
@@ -1011,7 +1019,7 @@ if __name__ == "__main__":
                                  discount=args.discount,
                                  tau=args.tau
                                  )
-    elif args.algo == 'ppo':
+    elif args.algo == 'dppo':
         from agents.ppo_diffusion import Diffusion_PPO as DummyAgent
         dummy_agent = DummyAgent(state_dim=state_dim, action_dim=action_dim, max_action=max_action, device=device, lr=0.0005)
     elif args.algo == 'gppo':
@@ -1021,7 +1029,10 @@ if __name__ == "__main__":
         from agents.gaussian_dql import Gaussian_DQL as DummyAgent
         dummy_agent = DummyAgent(state_dim=state_dim, action_dim=action_dim, max_action=max_action, device=device)
     elif args.algo == 'a2c':
-        from agents.gaussian_a2c import A2C_Agent as DummyAgent
+        from agents.gaussian_a2c import Gaussian_A2C as DummyAgent
+        dummy_agent = DummyAgent(state_dim=state_dim, action_dim=action_dim, max_action=max_action, device=device)
+    elif args.algo == 'da2c':
+        from agents.a2c_diffusion import Diffusion_A2C as DummyAgent
         dummy_agent = DummyAgent(state_dim=state_dim, action_dim=action_dim, max_action=max_action, device=device)
     else:
         # Default random agent for initial validation
@@ -1035,6 +1046,5 @@ if __name__ == "__main__":
     metrics_logger = train_agent(env, state_dim, action_dim, max_action, device, results_dir, args)
     
     print(f"\n🎉 All metrics saved to: {os.path.join(results_dir, 'metrics')}")
-    print(f"   - CSV files for analysis in Excel/Python")
     print(f"   - JSON files for programmatic access")
     print(f"   - Detailed step-by-step and epoch-by-epoch data")
