@@ -314,6 +314,7 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
     # data_sampler = Data_Sampler(dataset, device, args.reward_tune)
     # utils.print_banner('Loaded buffer')
 
+
     if   args.algo == 'dql':
         from agents.ql_diffusion import Diffusion_QL as Agent
         agent = Agent(state_dim=state_dim,
@@ -330,7 +331,7 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                       lr_decay=args.lr_decay,
                       lr_maxt=args.num_epochs,
                       grad_norm=args.gn)
-    elif args.algo == 'ppo':
+    elif args.algo == 'dppo':
         from agents.ppo_diffusion import Diffusion_PPO as Agent
         agent = Agent(state_dim=state_dim,
                       action_dim=action_dim,
@@ -342,6 +343,13 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                     #   n_timesteps=args.T,
                     #   lr=args.lr
                     )
+    elif args.algo == 'dppo_v1':
+        from agents.ppo_diffusion_v1 import Diffusion_PPO as Agent
+        agent = Agent(state_dim=state_dim,
+                      action_dim=action_dim,
+                      max_action=max_action,
+                      device=device
+                      )
     elif args.algo == 'gppo':
         from agents.gaussian_ppo import Gaussian_PPO as Agent
         agent = Agent(state_dim=state_dim,
