@@ -951,7 +951,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", default=1, type=int)
     parser.add_argument("--dir", default="results", type=str)
     parser.add_argument("--seed", default=43, type=int)
-    parser.add_argument("--num_epochs", default=1, type=int)
+    parser.add_argument("--num_epochs", default=500, type=int)
     parser.add_argument("--num_episodes_per_epoch", default=100, type=int)
     parser.add_argument("--batch_size", default=256, type=int)
     parser.add_argument("--lr_decay", action='store_true')
