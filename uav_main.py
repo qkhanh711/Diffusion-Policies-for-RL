@@ -19,6 +19,7 @@ matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 import sys
 import yaml
+from jlgo.uav_env_JLGO import load_config
 
 class MetricsLogger:
     def __init__(self, save_dir="metrics_logs"):
@@ -972,9 +973,13 @@ if __name__ == "__main__":
     args.max_q_backup = hp['max_q_backup']
     args.gn = hp['gn']
     args.top_k = hp['top_k']
+    loaded_cgf = load_config()
+    
+    qos =loaded_cgf["genai"]['quality_range']["fixed_brisque"]
+    
 
     config = get_uav_config()
-    file_name = f"uav-genai-env|{args.exp}/diffusion-{args.algo}|T-{args.T}/{config['environment']['num_ues']}_ues/{args.seed}"
+    file_name = f"uav-genai-env-req|{args.exp}/{qos}/diffusion-{args.algo}|T-{args.T}/{config['environment']['num_ues']}_ues/{args.seed}"
     results_dir = os.path.join(args.dir, file_name)
     os.makedirs(results_dir, exist_ok=True)
     print_banner(f"Saving location: {results_dir}")

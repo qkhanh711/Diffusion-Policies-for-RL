@@ -4,7 +4,7 @@
 
 # Environment Core Settings
 environment:
-  num_ues: 8                    # Number of user equipments (N ∈ {3, 5, 7})
+  num_ues: 7                    # Number of user equipments (N ∈ {3, 5, 7})
   total_timesteps: 80           # Episode length (steps) - sufficient for task completion
   env_step_duration: 0.5        # Physics simulation timestep (seconds)
   use_log_rewards: false        # Use log rewards for training stability
@@ -46,9 +46,9 @@ uav:
 ue:
   # Service type distribution (based on real-world usage patterns)
   service_distribution:
-    genai: 0.7  # 70% GenAI requests (image generation, text processing)
-    dnn: 0.3    # 30% DNN requests (image classification, recognition)
-  
+    genai: 0.5  # 50% GenAI requests (image generation, text processing)
+    dnn: 0.5    # 50% DNN requests (image classification, recognition)
+
   # Data size specifications (from paper)
   image_size_mb_range: [1, 5]      # S^img_i ∈ [1, 5] MB (input images)
   prompt_size_mb_range: [0.5, 1]   # S^prompt_i ∈ [0.5, 1] MB (text prompts)
@@ -108,7 +108,7 @@ genai:
   quality_range:
     min_brisque: 15.0                   # Better quality (lower BRISQUE score)
     max_brisque: 35.0                   # Acceptable quality threshold
-    fixed_brisque: 30.0
+    fixed_brisque: 25
 
 # Action Space Configuration - VELOCITY BASED
 action_space:

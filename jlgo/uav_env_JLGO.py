@@ -853,6 +853,7 @@ class UAVGenAIEnv(gym.Env):
             self.ue_quality_requirements[genai_mask] = np.full(
                 np.sum(genai_mask), fixed_brisque
             ) 
+            # print(f"🎨 GenAI UEs quality requirements (BRISQUE): {self.ue_quality_requirements[genai_mask]}")
             
             # Initialize denoising steps for GenAI UEs
             self.current_denoising_steps[genai_mask] = 10  # Default 10 steps
@@ -988,17 +989,6 @@ class UAVGenAIEnv(gym.Env):
         else:
             return np.random.uniform(10, 20)  # Excellent quality (low BRISQUE)
     
-    def _mock_brisque_score(self, denoising_steps):
-        """Legacy function for backward compatibility - CORRECTED"""
-        # More denoising steps = Better quality (lower BRISQUE score)
-        if denoising_steps < 10:
-            return np.random.uniform(35, 45)  # Poor quality (high BRISQUE)
-        elif denoising_steps >= 10 and denoising_steps < 20:
-            return np.random.uniform(20, 30)  # Good quality
-        elif denoising_steps >= 20:
-            return np.random.uniform(10, 20)  # Excellent quality (low BRISQUE) 
-        
-
     def step(self, action):
         self.current_step += 1
 
