@@ -1,7 +1,5 @@
 import gym
 from gym import spaces
-# import gymnasium as gym
-# from gymnasium import spaces
 import numpy as np
 
 def EnvConfig(envName):
@@ -20,6 +18,21 @@ def EnvConfig(envName):
         "PVM": 1e12,
         "Rmem": 2.304e12,
         "max_denoise_steps": 50,
+        "c1": 3.81e-6,
+        "c2": 4.86,
+        "base_image_size": 1024 * 1024,
+        "GE0": 1e8,
+        "GD0": 1e8,
+        "G_eps": 1e8,
+        "G_prompt": 1e7,
+        "sp_pos": np.array([0.0, 0.0, 50.0]),
+        "h0": 1.42e-4,
+        "path_loss": 2.0,
+        "bandwidth": 1e6,
+        "noise_power": 4.0e-21,
+        "upload_power": 0.0501,
+        "download_power": 0.5012,
+        "psi": 10,
     }
 
 
@@ -36,7 +49,7 @@ class User:
         self.image_size = np.random.uniform(100, 1000)
         self.prompt_size = np.random.uniform(10, 100)
         self.direction = np.random.uniform(0, 2*np.pi)
-        self.qos_required = np.random.uniform(10, 50)  # QoS yêu cầu (ví dụ FID)
+        self.qos_required = 30 
         self.mobility_speed = np.random.uniform(0.5, 2.0)  # tốc độ di chuyển
         self.mobility_angle = self.direction
 
@@ -51,167 +64,180 @@ class User:
 class GAIServiceEnv(gym.Env):
     def __init__(self, config):
         super().__init__()
-        self.num_users = config["num_users"]
-        self.T = config["T"]
-        self.tau = config["sys_tau"]
-        self.Gmax = config["Gmax"]
-        self.Mmax = config["Mmax"]
-        self.lambda_qos = config["lambda_qos"]
-        self.lambda_latency = config["lambda_latency"]
-        self.lambda_mem = config["lambda_mem"]
-        self.lambda_flops = config["lambda_flops"]
-        self.PVM = config["PVM"]
-        self.Rmem = config["Rmem"]
-        self.time_step = 0
-        self.users = [User(i, config) for i in range(self.num_users)]
-        self.max_denoise_steps = config["max_denoise_steps"]
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(6*self.num_users,), dtype=np.float32)
-        act_low = np.array([0, 1] * self.num_users)
-        act_high = np.array([1, self.max_denoise_steps] * self.num_users)
-        self.action_space = spaces.Box(low=act_low, high=act_high, dtype=np.float32)
-        self.psi = config.get("psi", 1)  
+        self.config = config
+        N = config["num_users"]
+        # Trạng thái người dùng (vector hóa)
+        self.pos = np.zeros((N, 2), dtype=np.float32)
+        self.image_size = np.zeros(N, dtype=np.float32)
+        self.prompt_size = np.zeros(N, dtype=np.float32)
+        self.direction = np.zeros(N, dtype=np.float32)
+        self.qos_required = np.zeros(N, dtype=np.float32)
+        self.mobility_speed = np.zeros(N, dtype=np.float32)
+        self.mobility_angle = np.zeros(N, dtype=np.float32)
+
+        self.observation_space = spaces.Box(
+            low=-np.inf, high=np.inf, shape=(6 * N,), dtype=np.float32
+        )
+        self.action_space = spaces.Box(
+            low=np.tile([0, 1], N),
+            high=np.tile([1, config["max_denoise_steps"]], N),
+            dtype=np.float32
+        )
         self.reset()
 
-
+    # ---------------------- Vectorized state ----------------------
     def reset(self):
+        cfg = self.config
+        N = cfg["num_users"]
         self.time_step = 0
-        for user in self.users:
-            user.reset()
-        obs = self._get_state()
-        return obs
 
+        self.pos = np.random.uniform(0, 100, size=(N, 2)).astype(np.float32)
+        self.image_size = np.random.uniform(100, 1000, size=N).astype(np.float32)
+        self.prompt_size = np.random.uniform(10, 100, size=N).astype(np.float32)
+        self.direction = np.random.uniform(0, 2*np.pi, size=N).astype(np.float32)
+        self.qos_required = np.random.uniform(10, 50, size=N).astype(np.float32)
+        self.mobility_speed = np.random.uniform(0.5, 2.0, size=N).astype(np.float32)
+        self.mobility_angle = self.direction.copy()
+        return self._get_state()
 
     def step(self, action):
-        reward, info = self._compute_reward(action)
-        self._move_users()
+        reward, info = self._compute_reward_vectorized(action)
+        self._move_users_vectorized()
         self.time_step += 1
-        done = self.time_step >= self.T
-        obs = self._get_state()
-        return obs, reward, done, info
+        done = self.time_step >= self.config["T"]
+        return self._get_state(), reward, done, info
 
-    
     def _get_state(self):
-        state = []
-        for user in self.users:
-            state.extend([
-                user.position[0], user.position[1],
-                user.image_size, user.prompt_size,
-                user.direction, user.qos_required
-            ])
-        return np.array(state, dtype=np.float32)
+        # [x, y, image_size, prompt_size, direction, qos_required] * N
+        return np.concatenate([
+            self.pos[:, 0],
+            self.pos[:, 1],
+            self.image_size,
+            self.prompt_size,
+            self.direction,
+            self.qos_required
+        ], axis=0).astype(np.float32)
 
-    def _move_users(self):
-        for user in self.users:
-            user.update_position()
+    def _move_users_vectorized(self):
+        self.pos[:, 0] += self.mobility_speed * np.cos(self.mobility_angle)
+        self.pos[:, 1] += self.mobility_speed * np.sin(self.mobility_angle)
+        self.mobility_angle += np.random.uniform(-0.1, 0.1, size=self.pos.shape[0]).astype(np.float32)
 
-    # def _compute_latency(self, user, denoise_steps):
-    #     # Công thức mô phỏng latency (có thể điều chỉnh theo paper)
-    #     upload_rate = 10e6  # bytes/s
-    #     mem_rate = 10e6     # bytes/s
-    #     compute_power = 1e9 # FLOPs/s
-    #     download_rate = 10e6 # bytes/s
-    #     output_size = user.image_size  # giả sử output size = image size
-    #     flops = denoise_steps * 1e8  # mỗi bước denoise cần 1e8 FLOPs
-    #     tup = (user.image_size + user.prompt_size) / upload_rate
-    #     tmem = (user.image_size + user.prompt_size) / mem_rate
-    #     tcomp = flops / compute_power
-    #     tdown = output_size / download_rate
-    #     total_latency = tup + tmem + tcomp + tdown
-    #     return total_latency, flops
+    # ---------------------- Vectorized helpers ----------------------
+    def _distance_all(self):
+        # UAV at sp_pos (3D), users at z=0
+        sp = self.config["sp_pos"].astype(np.float32)  # [x,y,z]
+        # users 3D = [x,y,0]
+        users3d = np.concatenate([self.pos, np.zeros((self.pos.shape[0], 1), dtype=np.float32)], axis=1)
+        d = np.linalg.norm(sp[None, :] - users3d, axis=1)  # [N]
+        return d + 1e-9  # tránh chia 0
 
-    def _compute_latency(self, user, denoise_steps):
-        upload_rate = 10e6  # bytes/s
-        mem_rate = self.Rmem / 8  # bit → byte
-        compute_power = self.PVM  # FLOPs/s
-        download_rate = 10e6  # bytes/s
-        output_size = user.image_size
-        flops = denoise_steps * 1e8
-        tup = (user.image_size + user.prompt_size) / upload_rate
-        tmem = (user.image_size + user.prompt_size) / mem_rate
-        tcomp = flops / compute_power
-        tdown = output_size / download_rate
-        total_latency = tup + tmem + tcomp + tdown
-        return total_latency, flops
+    def _channel_rate_all(self, distance):
+        cfg = self.config
+        h_i = cfg["h0"] / np.power(distance, cfg["path_loss"])
+        B_i = cfg["bandwidth"] / cfg["num_users"]
+        snr = cfg["upload_power"] * h_i / (B_i * cfg["noise_power"])
+        rate = B_i * np.log2(1.0 + snr)
+        return (rate / 8.0).astype(np.float64)  # bytes/s, dùng float64 cho ổn định
 
-    def _compute_qos(self, denoise_steps):
-        # FID giảm khi tăng số bước denoise (giả lập)
-        base_fid = 50
-        fid = base_fid / (1 + 0.1 * denoise_steps)
-        return fid
+    def _compute_flops_all(self, steps):
+        cfg = self.config
+        rho = self.image_size / cfg["base_image_size"]
+        # GE0 + GD0 + steps*G_eps + G_prompt
+        per = (cfg["GE0"] + cfg["GD0"] + steps * cfg["G_eps"] + cfg["G_prompt"])
+        return (rho * per).astype(np.float64)
 
-    # def _compute_price(self, user, flops):
-    #     # Công thức pricing (14)
-    #     price = 0.1 * user.image_size + 0.05 * user.prompt_size + 0.00001 * flops
-    #     return price
+    def _compute_memory_all(self):
+        cfg = self.config
+        return (cfg["c1"] * self.image_size + cfg["c2"]).astype(np.float64)
 
-    def _compute_price(self, user, flops):
-        # theo phương trình (14)
-        lambda_m = 1e-7
-        lambda_g = 1e-5
-        lambda_c = 2.5e-6
-        mem = user.image_size + user.prompt_size  # bytes
-        price = lambda_m * mem + lambda_g * flops + lambda_c * mem
-        return price
+    def _compute_qos_all(self, steps):
+        base_fid = 50.0
+        noise = np.random.normal(0.0, 2.0, size=steps.shape[0])
+        return (base_fid / (1.0 + 0.1 * steps) + noise).astype(np.float64)
 
-    def _compute_reward(self, action):
-        total_revenue = 0
-        total_penalty = 0
-        total_latency = 0
-        total_flops = 0
-        total_mem = 0
-        info = {"user_rewards": [], "user_penalties": [], "user_latencies": [], "user_qos": []}
-        for i, user in enumerate(self.users):
-            # print(type(action))
-            # print(action)
-            if isinstance(action, np.ndarray):
-                serve = int(round(action[2*i]))
-                denoise_steps = int(round(action[2*i+1]))
-            else:
-                # print(action.detach().cpu().numpy()[0])
-                serve = int(round(action.detach().cpu().numpy()[0][2*i]))
-                denoise_steps = int(round(action.detach().cpu().numpy()[0][2*i+1]))
-            denoise_steps = max(1, min(denoise_steps, self.max_denoise_steps))
-            if serve == 1:
-                latency, flops = self._compute_latency(user, denoise_steps)
-                qos = self._compute_qos(denoise_steps)
-                price = self._compute_price(user, flops)
-                mem = user.image_size + user.prompt_size  # memory usage
-                penalty_qos = self.lambda_qos * max(0, qos - user.qos_required)
-                penalty_latency = self.lambda_latency * max(0, latency - self.tau)
-                total_revenue += price
-                total_penalty += penalty_qos + penalty_latency
-                total_latency += latency
-                total_flops += flops
-                total_mem += mem
-                info["user_rewards"].append(price)
-                info["user_penalties"].append(penalty_qos + penalty_latency)
-                info["user_latencies"].append(latency)
-                info["user_qos"].append(qos)
-            else:
-                info["user_rewards"].append(0)
-                info["user_penalties"].append(0)
-                info["user_latencies"].append(0)
-                info["user_qos"].append(0)
-        # Penalty nếu tổng latency, flops, memory vượt ngưỡng
-        if total_latency > self.tau * self.num_users:
-            total_penalty += self.lambda_latency * (total_latency - self.tau * self.num_users)
-        if total_flops > self.Gmax:
-            total_penalty += self.lambda_flops * (total_flops - self.Gmax)
-        if total_mem > self.Mmax:
-            total_penalty += self.lambda_mem * (total_mem - self.Mmax)
-        # Thưởng nếu thỏa tất cả ràng buộc
-        bonus = 0
-        if total_latency <= self.tau * self.num_users and total_flops <= self.Gmax and total_mem <= self.Mmax:
-            bonus = self.psi
-        reward = total_revenue - total_penalty + bonus
-        info["total_revenue"] = total_revenue
-        info["total_penalty"] = total_penalty
-        info["total_latency"] = total_latency
-        info["total_flops"] = total_flops
-        info["total_mem"] = total_mem
-        info["bonus"] = bonus
-        return reward, info
-    
+    def _compute_price_all(self, mem, flops, comm):
+        # 1e-7*mem + 1e-5*flops + 2.5e-6*comm
+        return (1e-7 * mem + 1e-5 * flops + 2.5e-6 * comm).astype(np.float64)
+
+    # ---------------------- Vectorized reward ----------------------
+    def _compute_reward_vectorized(self, action):
+        cfg = self.config
+        N = cfg["num_users"]
+
+        # Parse action -> serves in {0,1}, steps in [1, max]
+        serves = (action[0::2] >= 0.5).astype(np.float64)                        # [N]
+        steps = np.clip(action[1::2].astype(np.int32), 1, cfg["max_denoise_steps"]).astype(np.float64)
+
+        # Comm rates (upload & download assumed same model)
+        d = self._distance_all()                                                 # [N]
+        rate_up = self._channel_rate_all(d)                                      # [N] bytes/s
+        rate_down = rate_up                                                      # cùng kênh
+
+        # Compute per-user quantities
+        mem = self._compute_memory_all()                                         # [N]
+        flops = self._compute_flops_all(steps)                                   # [N]
+        qos = self._compute_qos_all(steps)                                       # [N]
+        comm = (self.image_size + self.prompt_size).astype(np.float64)           # [N]
+        price = self._compute_price_all(mem, flops, comm)                        # [N]
+
+        # Latency components
+        mem_rate = cfg["Rmem"] / 8.0  # bytes/s
+        compute_power = cfg["PVM"]    # FLOPs/s
+
+        t_up = comm / np.maximum(rate_up, 1e-9)
+        t_mem = comm / np.maximum(mem_rate, 1e-9)
+        t_comp = flops / np.maximum(compute_power, 1e-9)
+        t_down = self.image_size.astype(np.float64) / np.maximum(rate_down, 1e-9)
+        latency = t_up + t_mem + t_comp + t_down                                 # [N]
+
+        # Apply serve mask
+        mask = serves
+        price_s   = price   * mask
+        latency_s = latency * mask
+        flops_s   = flops   * mask
+        mem_s     = mem     * mask
+        qos_s     = qos     * mask
+        qos_req_s = self.qos_required.astype(np.float64) * mask
+
+        # Reward & penalties
+        relu = np.maximum
+        total_reward = price_s.sum()
+
+        # per-user penalties
+        pen_q = cfg["lambda_qos"]     * relu(qos_s - qos_req_s, 0.0)
+        pen_l = cfg["lambda_latency"] * relu(latency_s - cfg["sys_tau"], 0.0)
+        total_penalty = (pen_q + pen_l).sum()
+
+        # system totals
+        total_latency = latency_s.sum()
+        total_flops   = flops_s.sum()
+        total_mem     = mem_s.sum()
+
+        # system penalties
+        total_penalty += (
+            cfg["lambda_latency"] * relu(total_latency - cfg["sys_tau"] * N, 0.0) +
+            cfg["lambda_flops"]   * relu(total_flops   - cfg["Gmax"],        0.0) +
+            cfg["lambda_mem"]     * relu(total_mem     - cfg["Mmax"],        0.0)
+        )
+
+        # bonus
+        bonus = cfg["psi"] if (
+            (total_latency <= cfg["sys_tau"] * N) and
+            (total_flops   <= cfg["Gmax"])      and
+            (total_mem     <= cfg["Mmax"])
+        ) else 0.0
+
+        info = dict(
+            served=int(mask.sum()),
+            total_latency=float(total_latency),
+            total_flops=float(total_flops),
+            total_mem=float(total_mem),
+            bonus=float(bonus),
+            penalty=float(total_penalty)
+        )
+        return float(total_reward - total_penalty + bonus), info
+
     def seed(self, seed=None):
         np.random.seed(seed)
         return [seed]

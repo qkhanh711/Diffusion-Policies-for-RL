@@ -10,7 +10,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from utils.logger import logger
 
 from agents.model import MLP
-from models.common.gaussian import GaussianModel
+from agents.models.common.gaussian import GaussianModel
 
 
 class GaussianActor(nn.Module):

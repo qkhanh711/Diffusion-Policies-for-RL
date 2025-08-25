@@ -12,14 +12,14 @@ from utils import utils
 from utils.data_sampler import Data_Sampler
 from utils.logger import logger, setup_logger
 from torch.utils.tensorboard import SummaryWriter
-from env.gai_env import GAIServiceEnv, EnvConfig
+from env.gai_env_org import GAIServiceEnv, EnvConfig
 import csv
 from datetime import datetime
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
-from env.env import GAIServiceEnv_v1 as GAIServiceEnv, EnvConfig_v1 as EnvConfig
-from env.env_v3 import GAIServiceEnv_v1 as GAIServiceEnv, EnvConfig_v1 as EnvConfig
+# from env.env import GAIServiceEnv_v1 as GAIServiceEnv, EnvConfig_v1 as EnvConfig
+# from env.env_v3 import GAIServiceEnv_v1 as GAIServiceEnv, EnvConfig_v1 as EnvConfig
 
 
 class MetricsLogger:
@@ -334,21 +334,36 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                       )
     elif args.algo == 'gppo':
         from agents.gaussian_ppo import Gaussian_PPO as Agent
-        agent = Agent(state_dim=state_dim,
-                      action_dim=action_dim,
-                      max_action=max_action,
-                      device=device,
-                      discount=args.discount,
-                      tau=args.tau,
-                      lr=args.lr,
-                      lr_decay=args.lr_decay,
-                      lr_maxt=args.num_epochs,
-                      grad_norm=args.gn,
-                      clip_ratio=0.2,
-                      value_clip_ratio=0.2,
-                      norm_adv=True,
-                      horizon_steps=1,
-                      ent_coef=0.01)
+        # agent = Agent(state_dim=state_dim,
+        #               action_dim=action_dim,
+        #               max_action=max_action,
+        #               device=device,
+        #               discount=args.discount,
+        #               tau=args.tau,
+        #               lr=args.lr,
+        #               lr_decay=args.lr_decay,
+        #               lr_maxt=args.num_epochs,
+        #               grad_norm=args.gn,
+        #               clip_ratio=0.2,
+        #               value_clip_ratio=0.2,
+        #               norm_adv=True,
+        #               horizon_steps=1,
+        #               ent_coef=0.01)
+
+        agent = Agent(
+            state_dim=state_dim,
+            action_dim=action_dim,
+            max_action=max_action,
+            device=device,
+            lr=0.0003,                # giảm learning rate
+            noise_scale=0.1,          # giảm noise
+            clip_ratio=0.1,           # giảm clip ratio
+            value_clip_ratio=0.1,     # giảm value clip ratio
+            ent_coef=0.02,            # tăng entropy coef
+            norm_adv=True,
+            discount=0.97,
+            grad_norm=0.5
+        )
     elif args.algo == 'gdql':
         from agents.gaussian_dql import Gaussian_DQL as Agent
         agent = Agent(state_dim=state_dim,
@@ -361,6 +376,20 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                       lr_decay=args.lr_decay,
                       lr_maxt=args.num_epochs,
                       grad_norm=args.gn)
+        # agent = Agent(
+        #     state_dim=state_dim,
+        #     action_dim=action_dim,
+        #     max_action=max_action,
+        #     device=device,
+        #     lr=0.0003,               
+        #     noise_scale=0.1,         
+        #     clip_ratio=0.1,          
+        #     value_clip_ratio=0.1,    
+        #     ent_coef=0.02,           
+        #     norm_adv=True,
+        #     discount=0.97,
+        #     grad_norm=0.5
+        # )
     elif args.algo == 'a2c':
         from agents.gaussian_a2c import Gaussian_A2C as Agent
         agent = Agent(state_dim=state_dim,
