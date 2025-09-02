@@ -1,18 +1,18 @@
 #!/bin/bash
-SEED=25
-EPISODES=1200
+SEED=24
+EPISODES=500
 SAVE_EPISODES=25
-ENV_NAME="gail-service-env-v5"
+ENV_NAME="gail-service-env-v6"
 DIR="t_results"
 TMUX_NAME="t_gai"
-FILE_MAIN="src/t_main_v5.py"
+FILE_MAIN="src/t_main_v6.py"
 DEVICE=1
 PRINT=False
 NUM_USERS=10
 
 # rm -r t_results
-# tmux kill-session -t "$TMUX_NAME"
-# tmux new-session -d -s "$TMUX_NAME" -n "watch" "watch -n 1 nvidia-smi"
+tmux kill-session -t "$TMUX_NAME"
+tmux new-session -d -s "$TMUX_NAME" -n "watch" "watch -n 1 nvidia-smi"
 
 tmux new-window   -t "$TMUX_NAME" -n "ppo"  "python $FILE_MAIN --algo dppo --seed $SEED --num_episodes $EPISODES --env_name $ENV_NAME --dir $DIR --n_users $NUM_USERS --device $DEVICE"
 tmux new-window   -t "$TMUX_NAME" -n "gppo" "python $FILE_MAIN --algo gppo --seed $SEED --num_episodes $EPISODES --env_name $ENV_NAME --dir $DIR --n_users $NUM_USERS"
