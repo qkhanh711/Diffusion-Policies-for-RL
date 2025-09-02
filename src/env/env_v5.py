@@ -8,7 +8,7 @@ def EnvConfig_v1(envName):
     return {
         "num_users": 10,
         "T": 10,
-        "sys_tau":0.4,
+        "sys_tau":0.5,
         "Gmax": 1e10,
         "Mmax": 48,
         "lambda_qos": 0.75,
@@ -56,7 +56,7 @@ class User:
         if config is None:
             config = self.config
         self.position = np.random.uniform(-500, 500, size=2)
-        self.image_size = np.random.uniform(100, 1000)  # bytes
+        self.image_size = np.random.uniform(700, 3000)  # bytes
         self.prompt_size = np.random.uniform(10, 100)   # bytes
         self.direction = np.random.uniform(0, 2*np.pi)
         self.qos_required = 30
@@ -148,6 +148,7 @@ class GAIServiceEnv_v1(gym.Env):
             return np.random.uniform(10, 20)  # Excellent quality (low BRISQUE)
 
     def _compute_price(self, mem, flops, comm):
+        # print(1e-7 * mem + 1e-5 * flops + 2.5e-6 * comm)
         return 1e-7 * mem + 1e-5 * flops + 2.5e-6 * comm
 
     def _compute_reward(self, action):

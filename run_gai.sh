@@ -1,6 +1,7 @@
 #!/bin/bash
 SEED=25
 EPISODES=1200
+SAVE_EPISODES=25
 ENV_NAME="gail-service-env-v5"
 DIR="t_results"
 TMUX_NAME="t_gai"
