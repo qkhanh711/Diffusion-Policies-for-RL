@@ -10,12 +10,12 @@ def EnvConfig_v1(envName):
         "T": 10,
         "sys_tau":0.5,
         "Gmax": 1e10,
-        "Mmax": 48,
+        "Mmax": 96,  # Tăng từ 48 để không bị chạm trần memory quá sớm
         "lambda_qos": 0.75,
         "lambda_latency": 0.5,
         "lambda_mem": 1.0,
         "lambda_flops": 1.0,
-        "lambda_serve_complete": 1.0,
+        "lambda_serve_complete": 0.8,  # 80% completion threshold for feasible rewards
         "PVM": 1e12,
         "Rmem": 2.304e12,
         "max_denoise_steps": 35,
@@ -35,11 +35,11 @@ def EnvConfig_v1(envName):
         "download_power": 0.5012,
         "psi": 100,  
         # MINIMAL BONUSES: Drastically reduced to prevent overfitting
-        "user_service_bonus": 2,           # Reduced from 10 to 2
+        "user_service_bonus": 3,           # Reduced from 10 to 2
         "memory_utilization_bonus": 5,     # Reduced from 30 to 5
         "fairness_bonus": 3,               # Reduced from 20 to 3
         "min_utilization_threshold": 0.55,  # Increased from 0.5 to 0.7 (very strict)
-        "penalty_reduction_factor": 0.75,   # Increased from 0.7 to 0.9 (minimal penalty reduction)
+        "penalty_reduction_factor": 0.5,   # Giảm từ 0.75 để penalty nhẹ hơn, agent dễ học hơn
         # MINIMAL: Progressive bonus parameters
         "efficiency_bonus_scale": 0.1,     # Reduced from 0.5 to 0.1
         "service_quality_weight": 0.05,    # Reduced from 0.3 to 0.05
@@ -56,7 +56,7 @@ class User:
         if config is None:
             config = self.config
         self.position = np.random.uniform(-500, 500, size=2)
-        self.image_size = np.random.uniform(700, 3000)  # bytes
+        self.image_size = np.random.uniform(2000, 5000)  # bytes - tăng từ [700,3000] để bài toán nặng hơn
         self.prompt_size = np.random.uniform(10, 100)   # bytes
         self.direction = np.random.uniform(0, 2*np.pi)
         self.qos_required = 30
@@ -214,9 +214,9 @@ class GAIServiceEnv_v1(gym.Env):
         # Set total memory for this step
         total_mem = current_memory
 
-        # System-level constraint penalties (nearly full penalties)
-        if total_latency > self.config["sys_tau"]:
-            total_penalty += self.config["lambda_latency"] * self.config["penalty_reduction_factor"] * (total_latency - self.config["sys_tau"])
+        # System-level constraint penalties (thống nhất sử dụng sys_tau * num_users)
+        if total_latency > self.config["sys_tau"] * self.config["num_users"]:
+            total_penalty += self.config["lambda_latency"] * self.config["penalty_reduction_factor"] * (total_latency - self.config["sys_tau"] * self.config["num_users"])
         if total_flops > self.config["Gmax"]:
             total_penalty += self.config["lambda_flops"] * self.config["penalty_reduction_factor"] * (total_flops - self.config["Gmax"])
         if total_mem > self.config["Mmax"]:
@@ -258,8 +258,8 @@ class GAIServiceEnv_v1(gym.Env):
             # 4. Minimal service quality bonus
             if quality_scores and len(quality_scores) >= self.config["num_users"] * 0.8:  # Only if serving most users
                 avg_quality = np.mean(quality_scores)
-                if avg_quality > 0.7:  # Only for high quality
-                    service_quality_bonus = self.config["service_quality_weight"] * (avg_quality - 0.7) * 5
+                if avg_quality > 0.5:  # Giảm từ 0.7 xuống 0.5 để dễ đạt bonus hơn
+                    service_quality_bonus = self.config["service_quality_weight"] * (avg_quality - 0.5) * 5
                     total_reward += service_quality_bonus
 
         # Minimal system constraint bonus (very strict conditions)

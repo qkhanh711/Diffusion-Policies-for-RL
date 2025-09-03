@@ -1213,11 +1213,13 @@ class MetricsLogger:
             print(f"Warning: Failed to create user positions plot: {e}")
 
 hyperparameters = {
-    'gail-service-env':     {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
-    'gail-service-env-v1':  {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
+    'gail-service-env'       :  {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
+    'gail-service-env-v1'    :  {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
     'gail-service-env-v3-org':  {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
-    'gail-service-env-v4':  {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
-    'gail-service-env-v5':  {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1}
+    'gail-service-env-v4'    :  {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
+    'gail-service-env-v5'    :  {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
+    'gail-service-env-v6'    :  {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
+    'gail-service-env-v6-baseline':  {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1}
 }
 
 class ReplayBuffer:
@@ -1274,6 +1276,7 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                       action_dim=action_dim,
                       max_action=max_action,
                       device=device,
+                      lr=args.lr,
                     #   discount=args.discount,
                     #   tau=args.tau,
                     #   beta_schedule=args.beta_schedule,
@@ -1680,6 +1683,8 @@ if __name__ == "__main__":
         from env.env_v3_org import GAIServiceEnv_v1 as GAIServiceEnv, EnvConfig_v1 as EnvConfig
     elif args.env_name == 'gail-service-env-v6':
         from env.env_v6 import GAIServiceEnv_v1 as GAIServiceEnv, EnvConfig_v1 as EnvConfig
+    elif args.env_name == 'gail-service-env-v6-baseline':
+        from env.env_v6_baseline import GAIServiceEnv_v1_baseline as GAIServiceEnv, EnvConfig_v1_baseline as EnvConfig
         
     config =  EnvConfig(args.env_name)
     config["num_users"] = args.n_users

@@ -134,3 +134,6 @@ dmypy.json
 # run_files/
 src/results/
 t_results/
+tt_results/
+test_debug/
+parallel_results/
