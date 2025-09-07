@@ -1381,8 +1381,8 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
         episode_losses = {}  
         saved_info = None
         saved_action = None  # Track the last action
-        
-        should_record_gif = (episode % 50 == 0)
+
+        should_record_gif = (episode % args.save_episodes == 0)
         if should_record_gif:
             metrics_logger.start_episode_recording()
         
@@ -1531,7 +1531,7 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                             # np.mean(loss_metric['actor_loss']), np.mean(loss_metric['critic_loss']), # These are not available in online RL
                             episode, # Use episode number for logging
                             ])
-        if episode % 50 == 0:
+        if episode % args.save_episodes == 0:
             if reward_improved:
                 print(f"🎯 New best reward achieved: {episode_reward:.4f} at episode {episode + 1}")
             metrics_logger.save_final_plot()
@@ -1620,6 +1620,7 @@ if __name__ == "__main__":
     parser.add_argument("--dir", default="t_results", type=str)                
     parser.add_argument("--seed", default=1, type=int)                      
     parser.add_argument("--num_episodes", default=10, type=int) 
+    parser.add_argument("--save_episodes", default=10, type=int)
     parser.add_argument("--batch_size", default=256, type=int)
     parser.add_argument("--lr_decay", action='store_true')
     parser.add_argument('--early_stop', action='store_true')
