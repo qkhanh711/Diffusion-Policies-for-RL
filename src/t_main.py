@@ -64,7 +64,16 @@ class MetricsLogger:
                     'total_served': info.get('served', 0),
                     'total_latency': info.get('total_latency', 0),
                     'total_flops': info.get('total_flops', 0),
-                    'total_mem': info.get('total_mem', 0)
+                    'total_mem': info.get('total_mem', 0),
+                    'mean_qos': info.get('mean_qos', 0),
+                    'bonus': info.get('bonus', 0),
+                    'penalty': info.get('penalty', 0),
+                    'penalty_qos': info.get('penalty_qos', 0),
+                    'latency': info.get('latency', 0),
+                    'flops': info.get('flops', 0),
+                    'mem': info.get('mem', 0),
+                    'price': info.get('price', 0),
+                    'denoise_steps': info.get('denoise_steps', [0]*num_users)
                 }
             }
             
@@ -75,7 +84,6 @@ class MetricsLogger:
             for i in range(num_users):
                 user_state_start = i * 6
                 
-                # Get raw actions
                 raw_serve_decision = float(action[2*i])
                 raw_denoise_action = float(action[2*i + 1])
                 
@@ -149,8 +157,8 @@ class MetricsLogger:
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
             
             # Set up the position plot
-            ax1.set_xlim(-1.2, 1.2)
-            ax1.set_ylim(-1.2, 1.2)
+            # ax1.set_xlim(-1.2, 1.2)
+            # ax1.set_ylim(-1.2, 1.2)
             ax1.set_xlabel('X Position')
             ax1.set_ylabel('Y Position')
             ax1.set_title(f'User Movements - Episode {episode_data["episode"]}')
@@ -534,39 +542,71 @@ class MetricsLogger:
         """Log environment-specific metrics including user data, diffusion steps, etc."""
         try:
             num_users = config["num_users"]
+            
+            # Extract system totals from env_info
+            total_served = env_info.get('total_served', 0)
+            total_latency = env_info.get('total_latency', 0)
+            total_flops = env_info.get('total_flops', 0)
+            total_mem = env_info.get('total_mem', 0)
+            penalty_qos = env_info.get('penalty_qos', 0)
+            qos = env_info.get('mean_qos', 0)
+            latency = env_info.get('latency', 0)
+            flops = env_info.get('flops', 0)
+            mem = env_info.get('mem', 0)
+            price = env_info.get('price', 0)
+            denoise_steps = env_info.get('denoise_steps', [0]*num_users)
+            bonus = env_info.get('bonus', 0)
+            penalty = env_info.get('penalty', 0)
+            
             env_data = {
                 'episode': episode,
                 'timestamp': datetime.now().isoformat(),
                 'system_constraints': {
-                    'Gmax': config["Gmax"],
-                    'Mmax': config["Mmax"],
-                    'sys_tau': config["sys_tau"],
-                    'max_denoise_steps': config["max_denoise_steps"]
+                    'Gmax': float(config["Gmax"]),
+                    'Mmax': float(config["Mmax"]),
+                    'sys_tau': float(config["sys_tau"]),
+                    'max_denoise_steps': int(config["max_denoise_steps"])
                 },
                 'users_data': [],
                 'system_totals': {
-                    'total_served': env_info.get('served', 0),
-                    'total_latency': env_info.get('total_latency', 0),
-                    'total_flops': env_info.get('total_flops', 0),
-                    'total_mem': env_info.get('total_mem', 0),
-                    'bonus': env_info.get('bonus', 0),
-                    'penalty': env_info.get('penalty', 0)
+                    'total_served': int(total_served),
+                    'total_latency': float(total_latency),
+                    'total_flops': float(total_flops),
+                    'total_mem': float(total_mem),
+                    'bonus': float(bonus),
+                    'penalty': float(penalty),
+                    'penalty_qos': float(penalty_qos),
+                    'mean_qos': float(qos),
+                    'latency': float(latency),
+                    'flops': float(flops),
+                    'mem': float(mem),
+                    'price': float(price),
+                    'denoise_steps': [int(ds) for ds in denoise_steps] if isinstance(denoise_steps, (list, np.ndarray)) else [0]*num_users
                 },
                 'constraints_status': {
-                    'latency_ok': env_info.get('total_latency', 0) <= config["sys_tau"] * num_users,
-                    'flops_ok': env_info.get('total_flops', 0) <= config["Gmax"],
-                    'mem_ok': env_info.get('total_mem', 0) <= config["Mmax"]
+                    'latency_ok': bool(total_latency <= config["sys_tau"] * num_users),
+                    'flops_ok': bool(total_flops <= config["Gmax"]),
+                    'mem_ok': bool(total_mem <= config["Mmax"])
                 }
             }
+            
+            # Debug: Print system totals to verify they're being captured
+            if episode % 10 == 0:  # Print every 10th episode to avoid spam
+                print(f"DEBUG Episode {episode}: served={total_served}, latency={total_latency:.2f}, flops={total_flops:.2f}, mem={total_mem:.2f}")
             
             # Extract user-specific information from state and action
             for i in range(num_users):
                 # State format: [x, y, image_size, prompt_size, direction, qos_required] per user
                 user_state_start = i * 6
                 
-                # Get raw actions
-                raw_serve_decision = float(action[2*i])
-                raw_denoise_action = float(action[2*i + 1])
+                # Get raw actions - handle potential array format
+                try:
+                    raw_serve_decision = float(action[2*i])
+                    raw_denoise_action = float(action[2*i + 1])
+                except (IndexError, TypeError) as e:
+                    print(f"Warning: Action format issue for user {i}: {e}")
+                    raw_serve_decision = 0.0
+                    raw_denoise_action = 0.0
                 
                 # Normalize actions if they are outside [0,1] range
                 # Assuming action space is [-1, 1], normalize to [0, 1]
@@ -581,34 +621,77 @@ class MetricsLogger:
                 scaled_denoise_steps = int(1 + normalized_denoise * (config["max_denoise_steps"] - 1))
                 scaled_denoise_steps = np.clip(scaled_denoise_steps, 1, config["max_denoise_steps"])
                 
-                user_data = {
-                    'user_id': i,
-                    'position': {
-                        'x': float(state[user_state_start]),
-                        'y': float(state[user_state_start + 1])
-                    },
-                    'image_size': float(state[user_state_start + 2]),
-                    'prompt_size': float(state[user_state_start + 3]),
-                    'direction': float(state[user_state_start + 4]),
-                    'qos_required': float(state[user_state_start + 5]),
-                    'action': {
-                        'serve_decision': normalized_serve,
-                        'serve_binary': 1 if normalized_serve >= 0.5 else 0,
-                        'denoise_steps': scaled_denoise_steps,
-                        'raw_serve_action': raw_serve_decision,  # Keep raw for debugging
-                        'raw_denoise_action': raw_denoise_action,  # Keep raw for debugging
-                        'normalized_denoise': normalized_denoise  # Keep normalized for debugging
+                # Get user state with bounds checking
+                try:
+                    user_data = {
+                        'user_id': i,
+                        'position': {
+                            'x': float(state[user_state_start]),
+                            'y': float(state[user_state_start + 1])
+                        },
+                        'image_size': float(state[user_state_start + 2]),
+                        'prompt_size': float(state[user_state_start + 3]),
+                        'direction': float(state[user_state_start + 4]),
+                        'qos_required': float(state[user_state_start + 5]),
+                        'action': {
+                            'serve_decision': float(normalized_serve),
+                            'serve_binary': int(1 if normalized_serve >= 0.5 else 0),
+                            'denoise_steps': int(scaled_denoise_steps),
+                            'raw_serve_action': float(raw_serve_decision),
+                            'raw_denoise_action': float(raw_denoise_action),
+                            'normalized_denoise': float(normalized_denoise)
+                        }
                     }
-                }
-                env_data['users_data'].append(user_data)
+                    env_data['users_data'].append(user_data)
+                except (IndexError, TypeError) as e:
+                    print(f"Warning: State format issue for user {i}: {e}")
+                    continue
             
             self.env_metrics.append(env_data)
             
         except Exception as e:
             print(f"Warning: Failed to log environment metrics: {e}")
-            print(f"Debug - action shape: {action.shape if hasattr(action, 'shape') else 'no shape'}")
-            print(f"Debug - action values: {action}")
-            print(f"Debug - action range: min={np.min(action)}, max={np.max(action)}")
+            print(f"Debug - env_info keys: {list(env_info.keys()) if isinstance(env_info, dict) else 'not dict'}")
+            print(f"Debug - action type: {type(action)}, shape: {getattr(action, 'shape', 'no shape')}")
+            print(f"Debug - state type: {type(state)}, shape: {getattr(state, 'shape', 'no shape')}")
+            
+            # Create minimal log entry even if there are errors
+            try:
+                env_data = {
+                    'episode': episode,
+                    'timestamp': datetime.now().isoformat(),
+                    'system_constraints': {
+                        'Gmax': float(config.get("Gmax", 0)),
+                        'Mmax': float(config.get("Mmax", 0)),
+                        'sys_tau': float(config.get("sys_tau", 0)),
+                        'max_denoise_steps': int(config.get("max_denoise_steps", 1))
+                    },
+                    'users_data': [],
+                    'system_totals': {
+                        'total_served': int(env_info.get('served', 0) if isinstance(env_info, dict) else 0),
+                        'total_latency': float(env_info.get('total_latency', 0) if isinstance(env_info, dict) else 0),
+                        'total_flops': float(env_info.get('total_flops', 0) if isinstance(env_info, dict) else 0),
+                        'total_mem': float(env_info.get('total_mem', 0) if isinstance(env_info, dict) else 0),
+                        'bonus': float(env_info.get('bonus', 0) if isinstance(env_info, dict) else 0),
+                        'penalty': float(env_info.get('penalty', 0) if isinstance(env_info, dict) else 0),
+                        'penalty_qos': float(env_info.get('penalty_qos', 0) if isinstance(env_info, dict) else 0),
+                        'mean_qos': float(env_info.get('mean_qos', 0) if isinstance(env_info, dict) else 0),
+                        'latency': float(env_info.get('latency', 0) if isinstance(env_info, dict) else 0),
+                        'flops': float(env_info.get('flops', 0) if isinstance(env_info, dict) else 0),
+                        'mem': float(env_info.get('mem', 0) if isinstance(env_info, dict) else 0),
+                        'price': float(env_info.get('price', 0) if isinstance(env_info, dict) else 0),
+                        'denoise_steps': [0]*config.get("num_users", 1) if isinstance(config.get("num_users", 1), int) else [0]
+                    },
+                    'constraints_status': {
+                        'latency_ok': False,
+                        'flops_ok': False,
+                        'mem_ok': False
+                    },
+                    'error': str(e)
+                }
+                self.env_metrics.append(env_data)
+            except Exception as e2:
+                print(f"Failed to create minimal log entry: {e2}")
 
 # ...existing code...
     def log_epoch_metrics(self, epoch, rewards, agent_losses=None):
@@ -656,8 +739,6 @@ class MetricsLogger:
         if len(self.loss_history['epochs']) == 0:
             return
             
-        current_epoch = self.loss_history['epochs'][-1]
-        
         # Create figure with subplots
         num_plots = 1 + len(self.loss_history['losses'])  # 1 for rewards + losses
         if num_plots == 1:
@@ -779,7 +860,7 @@ class MetricsLogger:
         plt.tight_layout()
         
         # Save final plot
-        final_plot_filename = f"final_training_plot_{self.timestamp}.png"
+        final_plot_filename = f"final_training_plot.png"
         final_plot_path = os.path.join(self.save_dir, final_plot_filename)
         plt.savefig(final_plot_path, dpi=300, bbox_inches='tight')
         plt.close()
@@ -853,7 +934,14 @@ class MetricsLogger:
                     'total_flops': env_episode_data['system_totals']['total_flops'],
                     'total_mem': env_episode_data['system_totals']['total_mem'],
                     'bonus': env_episode_data['system_totals']['bonus'],
-                    'penalty': env_episode_data['system_totals']['penalty']
+                    'penalty': env_episode_data['system_totals']['penalty'],
+                    'penalty_qos': env_episode_data['system_totals']['penalty_qos'],
+                    'mean_qos': env_episode_data['system_totals']['mean_qos'],
+                    'latency': env_episode_data['system_totals']['latency'],
+                    'flops': env_episode_data['system_totals']['flops'],
+                    'mem': env_episode_data['system_totals']['mem'],
+                    'price': env_episode_data['system_totals']['price'],
+                    'denoise_steps': env_episode_data['system_totals']['denoise_steps']
                 })
                 
                 # Add constraints status
@@ -885,7 +973,8 @@ class MetricsLogger:
                 merged_row.update({
                     'Gmax': None, 'Mmax': None, 'sys_tau': None, 'max_denoise_steps': None,
                     'total_served': None, 'total_latency': None, 'total_flops': None, 'total_mem': None,
-                    'bonus': None, 'penalty': None,
+                    'bonus': None, 'penalty': None, 'penalty_qos': None, 'mean_qos': None, 'latency': None,
+                    'flops': None, 'mem': None, 'price': None, 'denoise_steps': None,
                     'latency_ok': None, 'flops_ok': None, 'mem_ok': None,
                     'num_users': None, 'num_served': None, 'serve_ratio': None,
                     'avg_user_distance': None, 'avg_image_size': None, 'avg_prompt_size': None,
@@ -914,7 +1003,13 @@ class MetricsLogger:
                     'total_served': env_data['system_totals']['total_served'],
                     'total_latency': env_data['system_totals']['total_latency'],
                     'total_flops': env_data['system_totals']['total_flops'],
-                    'total_mem': env_data['system_totals']['total_mem']
+                    'total_mem': env_data['system_totals']['total_mem'],
+                    'bonus': env_data['system_totals']['bonus'],
+                    'penalty': env_data['system_totals']['penalty'],
+                    'Gmax': env_data['system_constraints']['Gmax'],
+                    'Mmax': env_data['system_constraints']['Mmax'],
+                    'sys_tau': env_data['system_constraints']['sys_tau'],
+                    'max_denoise_steps': env_data['system_constraints']['max_denoise_steps']
                 }
                 
                 for user in env_data['users_data']:
@@ -961,21 +1056,60 @@ class MetricsLogger:
     def save_env_metrics_plot(self):
         """Create plots for environment-specific metrics"""
         if len(self.env_metrics) == 0:
+            print("No environment metrics to plot")
             return
             
         try:
-            # Extract data for plotting
-            episodes = [m['episode'] for m in self.env_metrics]
-            served_users = [m['system_totals']['total_served'] for m in self.env_metrics]
-            total_latency = [m['system_totals']['total_latency'] for m in self.env_metrics]
-            total_flops = [m['system_totals']['total_flops'] for m in self.env_metrics]
-            total_mem = [m['system_totals']['total_mem'] for m in self.env_metrics]
-            bonuses = [m['system_totals']['bonus'] for m in self.env_metrics]
-            penalties = [m['system_totals']['penalty'] for m in self.env_metrics]
+            # Extract data for plotting with fallbacks
+            episodes = []
+            served_users = []
+            total_latency = []
+            total_flops = []
+            total_mem = []
+            bonuses = []
+            penalties = []
+            avg_denoise_steps = []
+            qos_compliance = []
+            mean_qos = []
+            
+            for m in self.env_metrics:
+                episodes.append(m['episode'])
+                users_data = m.get('system_totals', [])
+                if users_data:
+                    mean_qos.append(users_data['mean_qos'])
+                    compliant_count = users_data['mean_qos']
+                    qos_compliance.append(compliant_count / len(users_data))
+                else:
+                    mean_qos.append(0) 
+                    qos_compliance.append(0)  
+                # Handle both new format (with system_totals) and old format (without)
+                if 'system_totals' in m:
+                    served_users.append(m['system_totals'].get('total_served', 0))
+                    total_latency.append(m['system_totals'].get('total_latency', 0))
+                    total_flops.append(m['system_totals'].get('total_flops', 0))
+                    total_mem.append(m['system_totals'].get('total_mem', 0))
+                    bonuses.append(m['system_totals'].get('bonus', 0))
+                    penalties.append(m['system_totals'].get('penalty', 0))
+                else:
+                    # Fallback: calculate from user data
+                    users_data = m.get('users_data', [])
+                    served_count = sum(1 for u in users_data if u['action']['serve_binary'] == 1)
+                    served_users.append(served_count)
+                    total_latency.append(0)  # Cannot calculate without system info
+                    total_flops.append(0)    # Cannot calculate without system info
+                    total_mem.append(0)      # Cannot calculate without system info  
+                    bonuses.append(0)        # Cannot calculate without system info
+                    penalties.append(0)      # Cannot calculate without system info
+                
+                # Calculate average denoise steps
+                users_data = m.get('users_data', [])
+                steps = [user['action']['denoise_steps'] for user in users_data if user['action']['serve_binary'] == 1]
+                avg_steps = np.mean(steps) if steps else 0
+                avg_denoise_steps.append(avg_steps)
             
             # Create figure with subplots
-            fig, axes = plt.subplots(3, 2, figsize=(15, 12))
-            fig.suptitle('Environment Metrics Over Time', fontsize=16)
+            fig, axes = plt.subplots(4, 2, figsize=(15, 12))
+            fig.suptitle('Environment Metrics Over Episodes', fontsize=16)
             
             # Plot 1: Served Users
             axes[0, 0].plot(episodes, served_users, 'g-', linewidth=2, label='Served Users')
@@ -985,55 +1119,115 @@ class MetricsLogger:
             axes[0, 0].grid(True, alpha=0.3)
             axes[0, 0].legend()
             
-            # Plot 2: System Resources
-            axes[0, 1].plot(episodes, total_latency, 'r-', linewidth=2, label='Total Latency')
-            axes[0, 1].set_xlabel('Episode')
-            axes[0, 1].set_ylabel('Total Latency')
-            axes[0, 1].set_title('System Latency')
-            axes[0, 1].grid(True, alpha=0.3)
-            axes[0, 1].legend()
+            # Plot 2: System Resources (only if we have data)
+            if any(total_latency):
+                axes[0, 1].plot(episodes, total_latency, 'r-', linewidth=2, label='Total Latency')
+                axes[0, 1].plot(episodes, [config["sys_tau"] for m in self.env_metrics], 'k--', linewidth=1, label='Latency Constraint')
+                axes[0, 1].set_xlabel('Episode')
+                axes[0, 1].set_ylabel('Total Latency')
+                axes[0, 1].set_title('System Latency')
+                axes[0, 1].grid(True, alpha=0.3)
+                axes[0, 1].legend()
+            else:
+                axes[0, 1].text(0.5, 0.5, 'Latency data not available\n(system_totals missing)', 
+                               ha='center', va='center', transform=axes[0, 1].transAxes)
+                axes[0, 1].set_title('System Latency - No Data')
             
-            # Plot 3: Computational Resources
-            axes[1, 0].plot(episodes, total_flops, 'b-', linewidth=2, label='Total FLOPS')
-            axes[1, 0].set_xlabel('Episode')
-            axes[1, 0].set_ylabel('Total FLOPS')
-            axes[1, 0].set_title('Computational Load (FLOPS)')
-            axes[1, 0].grid(True, alpha=0.3)
-            axes[1, 0].legend()
+            # Plot 3: Computational Resources (only if we have data)
+            if any(total_flops):
+                axes[1, 0].plot(episodes, total_flops, 'b-', linewidth=2, label='Total FLOPS')
+                axes[1, 0].axhline(y=config["Gmax"], color='k', linestyle='--', linewidth=1, label='FLOPS Constraint')
+                axes[1, 0].set_xlabel('Episode')
+                axes[1, 0].set_ylabel('Total FLOPS')
+                axes[1, 0].set_title('Computational Load (FLOPS)')
+                axes[1, 0].grid(True, alpha=0.3)
+                axes[1, 0].legend()
+            else:
+                axes[1, 0].text(0.5, 0.5, 'FLOPS data not available\n(system_totals missing)', 
+                               ha='center', va='center', transform=axes[1, 0].transAxes)
+                axes[1, 0].set_title('Computational Load (FLOPS) - No Data')
             
-            # Plot 4: Memory Usage
-            axes[1, 1].plot(episodes, total_mem, 'm-', linewidth=2, label='Total Memory')
-            axes[1, 1].set_xlabel('Episode')
-            axes[1, 1].set_ylabel('Total Memory')
-            axes[1, 1].set_title('Memory Usage')
-            axes[1, 1].grid(True, alpha=0.3)
-            axes[1, 1].legend()
+            # Plot 4: Memory Usage (only if we have data)
+            if any(total_mem):
+                axes[1, 1].plot(episodes, total_mem, 'm-', linewidth=2, label='Total Memory')
+                axes[1, 1].axhline(y=config["Mmax"], color='k', linestyle='--', linewidth=1, label='Memory Constraint')
+                axes[1, 1].set_xlabel('Episode')
+                axes[1, 1].set_ylabel('Total Memory')
+                axes[1, 1].set_title('Memory Usage')
+                axes[1, 1].grid(True, alpha=0.3)
+                axes[1, 1].legend()
+            else:
+                axes[1, 1].text(0.5, 0.5, 'Memory data not available\n(system_totals missing)', 
+                               ha='center', va='center', transform=axes[1, 1].transAxes)
+                axes[1, 1].set_title('Memory Usage - No Data')
             
-            # Plot 5: Rewards and Penalties
-            axes[2, 0].plot(episodes, bonuses, 'g-', linewidth=2, label='Bonus')
-            axes[2, 0].plot(episodes, penalties, 'r-', linewidth=2, label='Penalty')
-            axes[2, 0].set_xlabel('Episode')
-            axes[2, 0].set_ylabel('Value')
-            axes[2, 0].set_title('Bonus vs Penalty')
-            axes[2, 0].grid(True, alpha=0.3)
-            axes[2, 0].legend()
+            # Plot 5: Rewards and Penalties (only if we have data)
+            if any(bonuses) or any(penalties):
+                axes[2, 0].plot(episodes, bonuses, 'g-', linewidth=2, label='Bonus')
+                axes[2, 0].plot(episodes, penalties, 'r-', linewidth=2, label='Penalty')
+                axes[2, 0].set_xlabel('Episode')
+                axes[2, 0].set_ylabel('Value')
+                axes[2, 0].set_title('Bonus vs Penalty')
+                axes[2, 0].grid(True, alpha=0.3)
+                axes[2, 0].legend()
+            else:
+                axes[2, 0].text(0.5, 0.5, 'Bonus/Penalty data not available\n(system_totals missing)', 
+                               ha='center', va='center', transform=axes[2, 0].transAxes)
+                axes[2, 0].set_title('Bonus vs Penalty - No Data')
             
-            # Plot 6: Average Diffusion Steps
-            avg_denoise_steps = []
-            for m in self.env_metrics:
-                steps = [user['action']['denoise_steps'] for user in m['users_data'] if user['action']['serve_binary'] == 1]
-                avg_steps = np.mean(steps) if steps else 0
-                avg_denoise_steps.append(avg_steps)
+            # Plot 6: Average Diffusion Steps (this should always be available)
+            if avg_denoise_steps:
+                axes[2, 1].plot(episodes, avg_denoise_steps, 'orange', linewidth=2, label='Avg Denoise Steps')
+                # print("DEBUG: avg_denoise_steps:", avg_denoise_steps)
+                axes[2, 1].set_xlabel('Episode')
+                axes[2, 1].set_ylabel('Average Steps')
+                axes[2, 1].set_title('Average Diffusion Steps (Served Users)')
+                axes[2, 1].grid(True, alpha=0.3)
+                axes[2, 1].legend()
+                
+                # Add statistics
+                if avg_denoise_steps:
+                    stats_text = f'Mean: {np.mean(avg_denoise_steps):.1f}\n'
+                    stats_text += f'Max: {np.max(avg_denoise_steps):.1f}\n'
+                    stats_text += f'Min: {np.min([x for x in avg_denoise_steps if x > 0]):.1f}'
+                    axes[2, 1].text(0.02, 0.98, stats_text, transform=axes[2, 1].transAxes,
+                                   verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+            else:
+                axes[2, 1].text(0.5, 0.5, 'No diffusion steps data available', 
+                               ha='center', va='center', transform=axes[2, 1].transAxes)
+                axes[2, 1].set_title('Average Diffusion Steps - No Data')
             
-            axes[2, 1].plot(episodes, avg_denoise_steps, 'orange', linewidth=2, label='Avg Denoise Steps')
-            axes[2, 1].set_xlabel('Episode')
-            axes[2, 1].set_ylabel('Average Steps')
-            axes[2, 1].set_title('Average Diffusion Steps (Served Users)')
-            axes[2, 1].grid(True, alpha=0.3)
-            axes[2, 1].legend()
-            
+
+            # Plot 7: QoS Compliance Rate (if qos data available)  
+            if any(qos_compliance):
+                axes[3, 0].plot(episodes, qos_compliance, 'purple', linewidth=2, label='QoS Compliance Rate')
+                axes[3, 0].set_xlabel('Episode')
+                axes[3, 0].set_ylabel('Compliance Rate')
+                axes[3, 0].set_title('QoS Compliance Rate')
+                axes[3, 0].grid(True, alpha=0.3)
+                axes[3, 0].legend()
+            else:
+                axes[3, 0].text(0.5, 0.5, 'QoS data not available', 
+                              ha='center', va='center', transform=axes[3, 0].transAxes)
+                axes[3, 0].set_title('QoS Compliance Rate - No Data')
+
+
+                       
+            if any(mean_qos):
+                axes[3, 1].plot(episodes, mean_qos, 'purple', linewidth=2, label='Average QoS')
+                axes[3, 1].axhline(y=np.mean(config.get("qos_required", 0)), color='k', linestyle='--', linewidth=1, label='Avg QoS Required')
+                axes[3, 1].set_xlabel('Episode')
+                axes[3, 1].set_ylabel('Average QoS')
+                axes[3, 1].set_title("Average QoS")
+                axes[3, 1].grid(True, alpha=0.3)
+                axes[3, 1].legend()
+            else:
+                axes[3, 1].text(0.5, 0.5, 'QoS data not available', 
+                              ha='center', va='center', transform=axes[3, 0].transAxes)
+                axes[3, 1].set_title('Average QoS - No Data')
+
+
             plt.tight_layout()
-            
             # Save plot
             env_plot_path = os.path.join(self.save_dir, "environment_metrics.png")
             plt.savefig(env_plot_path, dpi=300, bbox_inches='tight')
@@ -1041,8 +1235,18 @@ class MetricsLogger:
             
             print(f"📊 Environment metrics plot saved: {env_plot_path}")
             
+            # Print diagnostic info
+            has_system_totals = any('system_totals' in m for m in self.env_metrics)
+            print(f"DEBUG: Environment metrics contains system_totals: {has_system_totals}")
+            print(f"DEBUG: Total episodes logged: {len(self.env_metrics)}")
+            if self.env_metrics:
+                sample_keys = list(self.env_metrics[0].keys())
+                print(f"DEBUG: Sample metric keys: {sample_keys}")
+            
         except Exception as e:
             print(f"Warning: Failed to create environment metrics plot: {e}")
+            import traceback
+            traceback.print_exc()
     
     def save_user_positions_plot(self):
         """Create a plot showing user positions over time"""
@@ -1092,11 +1296,11 @@ class MetricsLogger:
             print(f"Warning: Failed to create user positions plot: {e}")
 
 hyperparameters = {
-    'gail-service-env':     {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
-    'gail-service-env-v1':  {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
-    'gail-service-env-v3-org':  {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
-    'gail-service-env-v4':  {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
-    'gail-service-env-v5':  {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 50, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1}
+    'gail-service-env':         {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 100, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
+    'gail-service-env-v1':      {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 100, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
+    'gail-service-env-v3-org':  {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 25, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
+    'gail-service-env-v4':      {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 100, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
+    'gail-service-env-v5':      {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 100, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1}
 }
 
 class ReplayBuffer:
@@ -1130,7 +1334,7 @@ class ReplayBuffer:
             torch.FloatTensor(self.not_done[ind]).to(self.device)
         )
 
-def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args):
+def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args, config):
     if   args.algo == 'dql':
         from agents.ql_diffusion import Diffusion_QL as Agent
         agent = Agent(state_dim=state_dim,
@@ -1260,8 +1464,8 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
         episode_losses = {}  
         saved_info = None
         saved_action = None  # Track the last action
-        
-        should_record_gif = (episode % 50 == 0)
+
+        should_record_gif = (episode % args.num_episodes == 0)
         if should_record_gif:
             metrics_logger.start_episode_recording()
         
@@ -1351,6 +1555,9 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
             print(f"  Bonus:   {bonus:.4f}")
             print(f"  Penalty: {penalty:.4f}")
             print(f"  Net:     {bonus + penalty:.4f}")
+            print(f"")
+            print(f"DEBUG - saved_info keys: {list(saved_info.keys())}")
+            print(f"DEBUG - config keys: {list(config.keys())}")
             print(f"{'='*60}\n")
                     
         episode_rewards.append(episode_reward)  
@@ -1381,7 +1588,7 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                             # np.mean(loss_metric['actor_loss']), np.mean(loss_metric['critic_loss']), # These are not available in online RL
                             episode, # Use episode number for logging
                             ])
-        if episode % 50 == 0:
+        if episode % args.eval_freq == 0:
             if reward_improved:
                 print(f"🎯 New best reward achieved: {episode_reward:.4f} at episode {episode + 1}")
             metrics_logger.save_final_plot()
@@ -1553,4 +1760,5 @@ if __name__ == "__main__":
                 max_action,
                 args.device,
                 results_dir,
-                args)
+                args,
+                config)

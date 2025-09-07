@@ -8,9 +8,9 @@ def EnvConfig_v1(envName):
     return {
         "num_users": 10,
         "T": 10,
-        "sys_tau": 3,
-        "Gmax": 1e13,
-        "Mmax": 128e9,
+        "sys_tau": 0.1,
+        "Gmax": 1e8,
+        "Mmax": 48,
         "lambda_qos": 0.5,
         "lambda_latency": 0.5,
         "lambda_mem": 1.0,
@@ -33,6 +33,7 @@ def EnvConfig_v1(envName):
         "upload_power": 0.0501,
         "download_power": 0.5012,
         "psi": 100,
+        "qos_required": 30,
     }
 
 
@@ -49,7 +50,7 @@ class User:
         self.image_size = np.random.uniform(100, 1000)  # bytes
         self.prompt_size = np.random.uniform(10, 100)   # bytes
         self.direction = np.random.uniform(0, 2*np.pi)
-        self.qos_required = 30
+        self.qos_required = config["qos_required"]
         self.mobility_speed = np.random.uniform(0.5, 2.0)
         self.mobility_angle = self.direction
 
@@ -139,6 +140,17 @@ class GAIServiceEnv_v1(gym.Env):
 
     def _compute_price(self, mem, flops, comm):
         return 1e-7 * mem + 1e-5 * flops + 2.5e-6 * comm
+    
+    def _served_penalty(self, serve):
+        serve_ratio = serve / self.config["num_users"]
+        if serve_ratio < 0.3:
+            return 20
+        elif serve_ratio < 0.6:
+            return 10
+        elif serve_ratio < 0.8:
+            return 5
+        else:
+            return -10
 
     def _compute_reward(self, action):
         total_reward = 0
@@ -147,16 +159,34 @@ class GAIServiceEnv_v1(gym.Env):
         total_flops = 0
         total_mem = 0
         info = {}
-
+        total_serve = 0
+        qos_gained = []
+        denoise_steps_list = []
         for i, user in enumerate(self.users):
-            serve = int(round(action[2 * i]))
-            denoise_steps = int(round(action[2 * i + 1]))
-            denoise_steps = np.clip(denoise_steps, 1, self.config["max_denoise_steps"])
 
+            # serve = int(round(action[2 * i]))
+            # denoise_steps = int(round(action[2 * i + 1]))
+            # denoise_steps = np.clip(denoise_steps, 1, self.config["max_denoise_steps"])
+
+ 
+            serve = float(action[2*i])
+            denoise_steps = float(action[2*i + 1])
+            normalized_serve = (serve + 1.0) / 2.0 if serve < 0 or serve > 1 else serve
+            normalized_denoise = (denoise_steps + 1.0) / 2.0 if denoise_steps < 0 or denoise_steps > 1 else denoise_steps
+            serve = 1 if normalized_serve >= 0.5 else 0
+            normalized_denoise = np.clip(normalized_denoise, 0.0, 1.0)
+            scaled_denoise_steps = int(1 + normalized_denoise * (self.config["max_denoise_steps"] - 1))
+            denoise_steps = np.clip(scaled_denoise_steps, 1, self.config["max_denoise_steps"])
+            denoise_steps_list.append(denoise_steps)
+            # print(f"DEBUG: User {i}, Raw Action: Serve={serve}, Denoise Steps={denoise_steps}, Normalized Serve={normalized_serve}, Normalized Denoise={normalized_denoise}, Scaled Denoise Steps={scaled_denoise_steps}")                       
+            # print(f"Action for User {i}: Serve={serve}, Denoise Steps={denoise_steps}")
             if serve:
+                # print(f"Serving {serve} User {i} with Denoise Steps: {denoise_steps}")
                 latency, flops = self._compute_latency(user, denoise_steps)
+                # print(f"Computed Latency for User {i}: {latency}")
                 mem = self._compute_memory(user)
                 qos = self._compute_qos(denoise_steps)
+                qos_gained.append(qos)
                 price = self._compute_price(mem, flops, user.image_size + user.prompt_size)
                 penalty_q = self.config["lambda_qos"] * max(0, qos - user.qos_required)
                 penalty_l = self.config["lambda_latency"] * max(0, latency - self.config["sys_tau"])
@@ -166,17 +196,38 @@ class GAIServiceEnv_v1(gym.Env):
                 total_latency += latency
                 total_flops += flops
                 total_mem += mem
+                total_serve += serve
+            mean_qos = np.mean(qos_gained) if qos_gained else None
+            # print(f"User {i}: Serve={serve}, Denoise Steps={denoise_steps}, Latency={latency if serve else 'N/A'}, Flops={flops if serve else 'N/A'}, Mem={mem if serve else 'N/A'}, QoS={qos if serve else 'N/A'}, Price={price if serve else 'N/A'}, Penalty QoS={penalty_q if serve else 'N/A'}, Penalty Latency={penalty_l if serve else 'N/A'}")
+            info.update({
+                "serve": serve,
+                "total_served": total_serve,
+                "total_latency": total_latency,
+                "total_flops": total_flops,
+                "total_mem": total_mem,
+                "bonus": 0,  # Placeholder, will be updated later
+                "penalty": total_penalty,
+                "penalty_qos": penalty_q if serve else 0,
+                "penalty_latency": penalty_l if serve else 0,
+                "mean_qos": mean_qos,
+                "latency": latency if serve else None,
+                "flops": flops if serve else None,
+                "mem": mem if serve else None,
+                "price": price if serve else None,
+                "denoise_steps": denoise_steps_list if serve else 0,
+            })
 
-        if total_latency > self.config["sys_tau"] * self.config["num_users"]:
-            total_penalty += self.config["lambda_latency"] * (total_latency - self.config["sys_tau"] * self.config["num_users"])
+        if total_latency > self.config["sys_tau"]:
+            total_penalty += self.config["lambda_latency"] * (total_latency - self.config["sys_tau"])
         if total_flops > self.config["Gmax"]:
             total_penalty += self.config["lambda_flops"] * (total_flops - self.config["Gmax"])
         if total_mem > self.config["Mmax"]:
             total_penalty += self.config["lambda_mem"] * (total_mem - self.config["Mmax"])
-
+        total_penalty += self._served_penalty(total_serve) 
         bonus = 0
-        if total_latency <= self.config["sys_tau"] * self.config["num_users"] and total_flops <= self.config["Gmax"] and total_mem <= self.config["Mmax"]:
+        if total_latency <= self.config["sys_tau"] and total_flops <= self.config["Gmax"] and total_mem <= self.config["Mmax"]:
             bonus = self.config["psi"]
+        info["bonus"] = bonus
 
         return total_reward - total_penalty + bonus, info
 
