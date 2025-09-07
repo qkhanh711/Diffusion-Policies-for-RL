@@ -391,21 +391,21 @@ class PlottingUtilities:
             violation_stats = metrics_logger.get_violation_statistics()
             
             summary_text = f"""TRAINING SUMMARY:
-• Total Episodes: {episode_stats.get('total_episodes', 0)}
-• Average Reward: {episode_stats.get('avg_episode_reward', 0):.2f} ± {episode_stats.get('std_episode_reward', 0):.2f}
-• Best Reward: {episode_stats.get('max_episode_reward', 0):.2f}
-• Average Service Ratio: {episode_stats.get('avg_service_ratio', 0):.3f}
-
-QoS PERFORMANCE:
-• Average QoS Achieved: {step_stats.get('avg_qos_achieved', {}).get('mean', 0):.2f}
-• QoS Satisfaction Rate: {step_stats.get('qos_satisfaction_rate', {}).get('mean', 0):.1%}
-• Average Diffusion Steps: {step_stats.get('avg_diffusion_steps', {}).get('mean', 0):.1f}
-
-RESOURCE EFFICIENCY:
-• Memory Utilization: {step_stats.get('memory_utilization', {}).get('mean', 0):.1%}
-• Constraint Violations: {violation_stats['total_violations']} total
-• Memory Violation Rate: {violation_stats['memory_violation_rate']:.1%}
-• QoS Violation Rate: {violation_stats['qos_violation_rate']:.1%}"""
+                                • Total Episodes: {episode_stats.get('total_episodes', 0)}
+                                • Average Reward: {episode_stats.get('avg_episode_reward', 0):.2f} ± {episode_stats.get('std_episode_reward', 0):.2f}
+                                • Best Reward: {episode_stats.get('max_episode_reward', 0):.2f}
+                                • Average Service Ratio: {episode_stats.get('avg_service_ratio', 0):.3f}
+                                
+                                QoS PERFORMANCE:
+                                • Average QoS Achieved: {step_stats.get('avg_qos_achieved', {}).get('mean', 0):.2f}
+                                • QoS Satisfaction Rate: {step_stats.get('qos_satisfaction_rate', {}).get('mean', 0):.1%}
+                                • Average Diffusion Steps: {step_stats.get('avg_diffusion_steps', {}).get('mean', 0):.1f}
+                                
+                                RESOURCE EFFICIENCY:
+                                • Memory Utilization: {step_stats.get('memory_utilization', {}).get('mean', 0):.1%}
+                                • Constraint Violations: {violation_stats['total_violations']} total
+                                • Memory Violation Rate: {violation_stats['memory_violation_rate']:.1%}
+                                • QoS Violation Rate: {violation_stats['qos_violation_rate']:.1%}"""
             
             ax7.text(0.05, 0.92, summary_text, transform=ax7.transAxes, fontsize=11,
                     verticalalignment='top', fontfamily='monospace',
@@ -526,12 +526,28 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                       lr_maxt=args.num_epochs,
                       grad_norm=args.gn)
     elif args.algo == 'dppo':
-        from agents.ppo_diffusion import Diffusion_PPO as Agent
+        from agents.ppo_diffusion_fixed import Diffusion_PPO_Fixed as Agent
+        # from agents.ppo_diffusion import Diffusion_PPO as Agent
         agent = Agent(state_dim=state_dim,
                       action_dim=action_dim,
                       max_action=max_action,
                       device=device,
-                      lr=args.lr)
+                      lr=3.6e-4,  # Much lower LR to prevent collapse
+                    #   gamma=args.discount,
+                    #   tau=args.tau,
+                    #   clip_param=0.1,  # Tight clipping for stability
+                    #   beta_schedule=args.beta_schedule,
+                    #   n_timesteps=args.T,
+                    #   ema_decay=0.9999,  # Very slow EMA 
+                    #   step_start_ema=5000,  # Very late EMA start
+                    #   update_ema_every=50,  # Very infrequent updates
+                    #   lr_decay=False,  # Disable LR decay for stability
+                    #   lr_maxt=args.num_epochs,
+                    #   grad_norm=0.25,  # Very strong gradient clipping
+                    #   entropy_coef=0.0001,  # Minimal entropy for stability
+                    #   value_loss_coef=0.1,  # Lower value loss to prevent overfitting
+                    #   warmup_steps=100
+                      )  # Very long warmup
     elif args.algo == 'dppo_v1':
         from agents.ppo_diffusion_v1 import Diffusion_PPO as Agent
         agent = Agent(state_dim=state_dim,
@@ -881,7 +897,7 @@ if __name__ == "__main__":
     # Create environment with MetricsLogger enabled
     if 'baseline' in args.env_name:
         env = GAIServiceEnv(config, enable_metrics=True, 
-                           metrics_window_size=args.num_episodes,
+                           metrics_window_size=500,
                            log_file=os.path.join(results_dir, "episode_metrics.log"))
     else:
         env = GAIServiceEnv(config)

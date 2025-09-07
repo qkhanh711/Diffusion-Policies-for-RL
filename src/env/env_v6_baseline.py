@@ -350,7 +350,7 @@ def EnvConfig_v1_baseline(envName):
     print(f"Using BASELINE environment configuration for: {envName}")
     return {
         "num_users": 10,
-        "T": 10,
+        "T": 1,
         "sys_tau": 3.0,  # Thay đổi: Ngân sách thời gian cho 1 phiên (session)
         "Gmax": 1e10,
         "Mmax": 48,  # Peak memory per batch
