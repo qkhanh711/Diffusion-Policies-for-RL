@@ -9,7 +9,7 @@ def EnvConfig_v1(envName):
         "num_users": 10,
         "T": 10,
         "sys_tau": 0.1,
-        "Gmax": 1e8,
+        "Gmax": 5e7,
         "Mmax": 48,
         "lambda_qos": 0.5,
         "lambda_latency": 0.5,
