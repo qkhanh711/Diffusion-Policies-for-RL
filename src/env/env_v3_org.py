@@ -177,6 +177,9 @@ class GAIServiceEnv_v1(gym.Env):
             normalized_denoise = np.clip(normalized_denoise, 0.0, 1.0)
             scaled_denoise_steps = int(1 + normalized_denoise * (self.config["max_denoise_steps"] - 1))
             denoise_steps = np.clip(scaled_denoise_steps, 1, self.config["max_denoise_steps"])
+
+            
+            
             denoise_steps_list.append(denoise_steps)
             # print(f"DEBUG: User {i}, Raw Action: Serve={serve}, Denoise Steps={denoise_steps}, Normalized Serve={normalized_serve}, Normalized Denoise={normalized_denoise}, Scaled Denoise Steps={scaled_denoise_steps}")                       
             # print(f"Action for User {i}: Serve={serve}, Denoise Steps={denoise_steps}")
