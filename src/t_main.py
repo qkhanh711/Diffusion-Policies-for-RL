@@ -693,7 +693,6 @@ class MetricsLogger:
             except Exception as e2:
                 print(f"Failed to create minimal log entry: {e2}")
 
-# ...existing code...
     def log_epoch_metrics(self, epoch, rewards, agent_losses=None):
         """Log metrics mỗi epoch"""
         if isinstance(rewards, (int, float)):
@@ -1298,7 +1297,7 @@ class MetricsLogger:
 hyperparameters = {
     'gail-service-env':         {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 100, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
     'gail-service-env-v1':      {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 100, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
-    'gail-service-env-v3-org':  {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 25, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
+    'gail-service-env-v3-org':  {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 100, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
     'gail-service-env-v4':      {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 100, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1},
     'gail-service-env-v5':      {'lr': 3e-4, 'eta': 1.0,   'max_q_backup': False,  'reward_tune': 'no', 'eval_freq': 100, 'num_epochs': 1, 'gn': 5.0,  'top_k': 1}
 }
@@ -1588,13 +1587,22 @@ def train_agent(env, state_dim, action_dim, max_action, device, output_dir, args
                             # np.mean(loss_metric['actor_loss']), np.mean(loss_metric['critic_loss']), # These are not available in online RL
                             episode, # Use episode number for logging
                             ])
-        if episode % args.eval_freq == 0:
-            if reward_improved:
+        # Save figures only in early stage (first 100 episodes) and once at the end
+        is_first_hundred_window = (episode < 100)
+        is_training_end = (episode == args.num_episodes - 1)
+        should_save_now = (
+            (is_first_hundred_window and (episode == 0 or episode == 99))
+            or is_training_end
+        )
+        if should_save_now:
+            if reward_improved and is_first_hundred_window:
                 print(f"🎯 New best reward achieved: {episode_reward:.4f} at episode {episode + 1}")
             metrics_logger.save_final_plot()
             metrics_logger.save_env_metrics_plot()
             metrics_logger.save_user_positions_plot()
-            metrics_logger.save_user_positions_gif()
+            # Create GIFs only in the early window to avoid slowdown
+            if is_first_hundred_window:
+                metrics_logger.save_user_positions_gif()
             # metrics_logger.save_to_csv()
             metrics_logger.save_to_json()
             

@@ -17,14 +17,15 @@ def EnvConfig_v1(envName):
         "lambda_flops": 1.0,
         "PVM": 1e12,
         "Rmem": 2.304e12,
-        "max_denoise_steps": 50,
+        "max_denoise_steps": 25,
+        "min_denoise_steps": 3,
         "c1": 3.81e-6,
         "c2": 4.86,
-        "base_image_size": 1024 * 1024,
-        "GE0": 1e8,
-        "GD0": 1e8,
-        "G_eps": 1e8,
-        "G_prompt": 1e7,
+        "base_image_size": 1024 * 1024,  # 1MB base image
+        "GE0": 5e8,       # Increased base FLOPS
+        "GD0": 5e8,       # Increased base FLOPS
+        "G_eps": 1e8,     # FLOPS per denoise step
+        "G_prompt": 1e7,  # FLOPS for prompt processing
         "sp_pos": np.array([0.0, 0.0, 50.0]),
         "h0": 1.42e-4,
         "path_loss": 2.0,
@@ -67,7 +68,7 @@ class GAIServiceEnv_v1(gym.Env):
         self.config = config
         self.users = [User(i, config) for i in range(config["num_users"])]
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(6 * config["num_users"],), dtype=np.float32)
-        self.action_space = spaces.Box(low=np.array([0, 1] * config["num_users"]),
+        self.action_space = spaces.Box(low=np.array([0, config["min_denoise_steps"]] * config["num_users"]),
                                        high=np.array([1, config["max_denoise_steps"]] * config["num_users"]),
                                        dtype=np.float32)
         self.reset()
@@ -114,11 +115,26 @@ class GAIServiceEnv_v1(gym.Env):
         compute_power = self.config["PVM"]
 
         flops = self._compute_flops(user, denoise_steps)
+        
+        # Communication latency (upload + download)
         t_up = (user.image_size + user.prompt_size) / rate_up
-        t_mem = (user.image_size + user.prompt_size) / mem_rate
-        t_comp = flops / compute_power
         t_down = user.image_size / rate_down
-        return t_up + t_mem + t_comp + t_down, flops
+        
+        # Memory access latency
+        t_mem = (user.image_size + user.prompt_size) / mem_rate
+        
+        # Computation latency (FLOPS-based)
+        t_comp = flops / compute_power
+        
+        # Additional fixed latency for LDM inference overhead
+        # This includes model loading, initialization, and other fixed costs
+        t_ldm_overhead = 0.005  # 2 seconds fixed overhead
+        
+        # Denoise steps add significant computation time
+        t_denoise = denoise_steps * 0.0005  # 0.5 seconds per denoise step
+        
+        total_latency = t_up + t_mem + t_comp + t_down + t_ldm_overhead + t_denoise
+        return total_latency, flops
 
     def _compute_flops(self, user, denoise_steps):
         rho = user.image_size / self.config["base_image_size"]
@@ -129,14 +145,15 @@ class GAIServiceEnv_v1(gym.Env):
         return self.config["c1"] * user.image_size + self.config["c2"]
 
     def _compute_qos(self, denoise_steps):
-        if denoise_steps < 5:
-            return np.random.uniform(40, 50)  # Poor quality (high BRISQUE)
-        elif denoise_steps < 10:
-            return np.random.uniform(30, 40)  # Fair quality
-        elif denoise_steps < 15:
-            return np.random.uniform(20, 30)  # Good quality
+        # Adjusted for denoise steps range 5-25
+        if denoise_steps < 8:
+            return np.random.uniform(32, 40)  # Poor quality (high BRISQUE)
+        elif denoise_steps < 12:
+            return np.random.uniform(24, 32)  # Fair quality
+        elif denoise_steps < 18:
+            return np.random.uniform(16, 24)  # Good quality
         else:
-            return np.random.uniform(10, 20)  # Excellent quality (low BRISQUE)
+            return np.random.uniform(8, 16)   # Excellent quality (low BRISQUE)
 
     def _compute_price(self, mem, flops, comm):
         return 1e-7 * mem + 1e-5 * flops + 2.5e-6 * comm
@@ -175,8 +192,11 @@ class GAIServiceEnv_v1(gym.Env):
             normalized_denoise = (denoise_steps + 1.0) / 2.0 if denoise_steps < 0 or denoise_steps > 1 else denoise_steps
             serve = 1 if normalized_serve >= 0.5 else 0
             normalized_denoise = np.clip(normalized_denoise, 0.0, 1.0)
-            scaled_denoise_steps = int(1 + normalized_denoise * (self.config["max_denoise_steps"] - 1))
-            denoise_steps = np.clip(scaled_denoise_steps, 1, self.config["max_denoise_steps"])
+            # Scale from [0,1] to [min_denoise_steps, max_denoise_steps]
+            min_steps = self.config["min_denoise_steps"]
+            max_steps = self.config["max_denoise_steps"]
+            scaled_denoise_steps = int(min_steps + normalized_denoise * (max_steps - min_steps))
+            denoise_steps = np.clip(scaled_denoise_steps, min_steps, max_steps)
 
             
             
@@ -305,5 +325,121 @@ if __name__ == "__main__":
     state = env.reset()
     print("Initial State:", state)
     action = np.random.uniform(0, 1, size=2 * config["num_users"])
+    
+    print("\n=== ENVIRONMENT ANALYSIS ===")
+    print("Testing with random positions for 10 users")
+    print("=" * 50)
+    
+    print(f"Configuration:")
+    print(f"  num_users: {config['num_users']}")
+    print(f"  sys_tau (latency constraint): {config['sys_tau']}")
+    print(f"  Gmax (FLOPS constraint): {config['Gmax']}")
+    print(f"  Mmax (memory constraint): {config['Mmax']}")
+    print(f"  qos_required: {config['qos_required']}")
+    print(f"  min_denoise_steps: {config['min_denoise_steps']}")
+    print(f"  max_denoise_steps: {config['max_denoise_steps']}")
+    print()
+    
+    # Analyze each user
+    total_latency = 0
+    total_flops = 0
+    total_memory = 0
+    total_price = 0
+    served_users = 0
+    
+    print("USER ANALYSIS:")
+    print("-" * 80)
+    print(f"{'User':<4} {'Pos(x,y)':<15} {'Dist':<8} {'Serve':<5} {'Steps':<5} {'Latency':<10} {'FLOPS':<12} {'Memory':<10} {'QoS':<8} {'Price':<10}")
+    print("-" * 80)
+    
+    for i in range(config["num_users"]):
+        user = env.users[i]
+        distance = env._distance(user)
+        
+        # Get action for this user
+        serve = float(action[2*i])
+        denoise_steps = float(action[2*i + 1])
+        normalized_serve = (serve + 1.0) / 2.0 if serve < 0 or serve > 1 else serve
+        normalized_denoise = (denoise_steps + 1.0) / 2.0 if denoise_steps < 0 or denoise_steps > 1 else denoise_steps
+        serve = 1 if normalized_serve >= 0.5 else 0
+        normalized_denoise = np.clip(normalized_denoise, 0.0, 1.0)
+        min_steps = env.config["min_denoise_steps"]
+        max_steps = env.config["max_denoise_steps"]
+        scaled_denoise_steps = int(min_steps + normalized_denoise * (max_steps - min_steps))
+        denoise_steps = np.clip(scaled_denoise_steps, min_steps, max_steps)
+        
+        if serve:
+            latency, flops = env._compute_latency(user, denoise_steps)
+            mem = env._compute_memory(user)
+            qos = env._compute_qos(denoise_steps)
+            price = env._compute_price(mem, flops, user.image_size + user.prompt_size)
+            
+            total_latency += latency
+            total_flops += flops
+            total_memory += mem
+            total_price += price
+            served_users += 1
+        else:
+            latency, flops, mem, qos, price = 0, 0, 0, 0, 0
+        
+        print(f"{i:<4} "
+              f"({user.position[0]:.1f},{user.position[1]:.1f}) "
+              f"{distance:<8.1f} "
+              f"{serve:<5} "
+              f"{denoise_steps:<5} "
+              f"{latency:<10.3f} "
+              f"{flops:<12.0f} "
+              f"{mem:<10.1f} "
+              f"{qos:<8.1f} "
+              f"{price:<10.6f}")
+    
+    print("-" * 80)
+    print(f"TOTALS: {served_users} served users")
+    print(f"  Total Latency: {total_latency:.3f}")
+    print(f"  Total FLOPS: {total_flops:.0f}")
+    print(f"  Total Memory: {total_memory:.1f}")
+    print(f"  Total Price: {total_price:.6f}")
+    print()
+    
+    # Calculate percentages
+    latency_pct = (total_latency / config['sys_tau']) * 100
+    flops_pct = (total_flops / config['Gmax']) * 100
+    memory_pct = (total_memory / config['Mmax']) * 100
+    
+    print("CONSTRAINT UTILIZATION:")
+    print("-" * 40)
+    print(f"Latency: {total_latency:.3f} / {config['sys_tau']} = {latency_pct:.1f}%")
+    print(f"FLOPS:   {total_flops:.0f} / {config['Gmax']:.0f} = {flops_pct:.1f}%")
+    print(f"Memory:  {total_memory:.1f} / {config['Mmax']:.0f} = {memory_pct:.1f}%")
+    print()
+    
+    # Check constraints
+    latency_ok = total_latency <= config['sys_tau']
+    flops_ok = total_flops <= config['Gmax']
+    memory_ok = total_memory <= config['Mmax']
+    
+    print("CONSTRAINT STATUS:")
+    print("-" * 20)
+    print(f"Latency OK: {'✓' if latency_ok else '✗'}")
+    print(f"FLOPS OK:   {'✓' if flops_ok else '✗'}")
+    print(f"Memory OK:  {'✓' if memory_ok else '✗'}")
+    
+    if latency_ok and flops_ok and memory_ok:
+        print(f"BONUS EARNED: {config['psi']}")
+    else:
+        print("NO BONUS (constraints violated)")
+    
+    print()
+    
+    # Run actual step to get reward
     next_state, reward, done, info = env.step(action)
-    print("Next State:", next_state, "Reward:", reward, "Done:", done, "Info:", info)
+    print("ENVIRONMENT STEP RESULT:")
+    print(f"  Reward: {reward:.6f}")
+    print(f"  Done: {done}")
+    print(f"  Info keys: {list(info.keys())}")
+    print(f"  Total served: {info.get('total_served', 0)}")
+    print(f"  Total latency: {info.get('total_latency', 0):.3f}")
+    print(f"  Total flops: {info.get('total_flops', 0):.0f}")
+    print(f"  Total memory: {info.get('total_mem', 0):.1f}")
+    print(f"  Bonus: {info.get('bonus', 0)}")
+    print(f"  Penalty: {info.get('penalty', 0):.3f}")
